@@ -14,6 +14,7 @@ resource "aws_ecs_cluster" "main" {
   }
 }
 
-resource "aws_cloudwatch_log_group" "ecs" {
-  name = "/ecs/${var.company_prefix}-sandbox/"
+resource "aws_security_group" "ecs" {
+  name   = "${var.company_prefix}-sandbox-ecs-sg"
+  vpc_id = aws_vpc.main.id
 }

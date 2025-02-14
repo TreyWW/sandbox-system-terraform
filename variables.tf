@@ -6,16 +6,10 @@ variable "company_prefix" {
   default     = "sandbox-system"
 }
 
-variable "github_repository" {
+variable "domain" {
   type        = string
-  description = "GitHub repository name"
-  default     = "TreyWW/sandbox-system-terraform"
-}
-
-variable "github_autodeploy_enabled" {
-  type        = bool
-  description = "Whether to enable GitHub auto-deploy"
-  default     = false
+  description = "Domain name to be used for resource names"
+  default     = "example.com"
 }
 
 ### ---- VPC ----
