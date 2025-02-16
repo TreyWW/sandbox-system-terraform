@@ -1,11 +1,9 @@
 terraform {
-#   backend "s3" {
-#     bucket = "${company_prefix}-tfstate-${local.account_id}"
-#     key    = "backend.tfstate"
-#     region = "eu-west-2"
-#   }
+  backend "s3" {
+  }
 
   # TODO figure out how to get dynamic bucket name based on account id ^
+  # using dev.tfbackend setting bucket, region and key
 
   required_providers {
     aws = {

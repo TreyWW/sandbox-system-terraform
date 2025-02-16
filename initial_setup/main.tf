@@ -47,13 +47,14 @@ resource "aws_iam_openid_connect_provider" "github" {
 
   lifecycle {
     ignore_changes = [
-      thumbprint_list
+      thumbprint_list,
+      tags
     ]
   }
 }
 
 resource "aws_iam_role" "Github-Actions-OIDC-Role" {
-  name = "${company_prefix}-Github-Actions-OIDC-Role"
+  name = "${var.company_prefix}-Github-Actions-OIDC-Role"
 
   assume_role_policy = jsonencode({
     "Version" : "2012-10-17",
@@ -79,7 +80,7 @@ resource "aws_iam_role" "Github-Actions-OIDC-Role" {
 }
 
 resource "aws_iam_role" "Github-Actions-OIDC-Role-READONLY" {
-  name = "${company_prefix}-Github-Actions-OIDC-Role-READONLY"
+  name = "${var.company_prefix}-Github-Actions-OIDC-Role-READONLY"
 
   assume_role_policy = jsonencode({
     "Version" : "2012-10-17",
@@ -116,7 +117,7 @@ resource "aws_iam_role_policy_attachment" "readonly_access" {
 
 
 resource "aws_s3_bucket" "tfstate" {
-  bucket = "${company_prefix}-tfstate-${local.account_id}"
+  bucket = "${var.company_prefix}-tfstate-${local.account_id}"
 }
 
 resource "aws_s3_bucket_versioning" "tfstate" {

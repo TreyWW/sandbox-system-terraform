@@ -20,42 +20,14 @@ variable "vpc_cidr" {
   default     = "10.16.0.0/16"  # VPC spans 10.16.0.0 -> 10.16.255.255 (65,536 IPs)
 }
 
+output "vpc_cidr" {
+  value = var.vpc_cidr
+}
+
 variable "region" {
   type        = string
   description = "Main deployed AWS Region. MUST SUPPORT AT LEAST 3 AVAILABILITY ZONES"
   default     = "eu-west-2"
-}
-
-# ---- PEER VPC
-
-variable "peer_vpc_enabled" {
-  type        = bool
-  description = "Whether to peer VPC with another for any resources (such as shared NAT)"
-  default     = false
-}
-
-variable "peer_vpc_cidr" {
-  type        = string
-  description = "CIDR for the VPC"
-  default     = "10.17.0.0/16"  # VPC spans 10.17.0.0 -> 10.17.255.255 (65,536 IPs)
-}
-
-variable "peer_owner_id" {
-  type        = string
-  description = "AWS Account ID of the VPC owner"
-  default     = "123456789012"
-}
-
-variable "peer_vpc_region" {
-  type        = string
-  description = "Region of the VPC owner"
-  default     = "eu-west-2"
-}
-
-variable "peer_vpc_id" {
-  type        = string
-  description = "VPC ID of the VPC owner"
-  default     = "vpc-12345678901234567"
 }
 
 # ---- PUBLIC SUBNETS ----

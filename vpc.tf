@@ -3,7 +3,7 @@ resource "aws_vpc" "main" {
   enable_dns_hostnames = true
 
   tags = {
-    Name = "main-vpc"
+    Name = "${var.company_prefix}-main-vpc"
   }
 }
 
@@ -11,20 +11,6 @@ resource "aws_internet_gateway" "main" {
   vpc_id = aws_vpc.main.id
   tags = {
     Name = "main-igw"
-  }
-}
-
-# ---- PEER ANOTHER ACCOUNT ----
-
-resource "aws_vpc_peering_connection" "main" {
-  count = var.peer_vpc_enabled ? 1 : 0
-  vpc_id = aws_vpc.main.id
-  peer_vpc_id = var.peer_vpc_id
-  peer_owner_id = var.peer_owner_id
-  peer_region = var.peer_vpc_region
-
-  tags = {
-    Name = "${var.company_prefix}-vpc-root-peer"
   }
 }
 
@@ -154,15 +140,6 @@ resource "aws_route_table" "private_rt" {
   }
 }
 
-resource "aws_route" "root_account_peer_pvt" {
-  count = var.peer_vpc_enabled ? 1 : 0
-  route_table_id = aws_route_table.private_rt.id
-
-  destination_cidr_block = var.peer_vpc_cidr
-
-  vpc_peering_connection_id = aws_vpc_peering_connection.main.id
-}
-
 resource "aws_route_table_association" "private_1a" {
   subnet_id      = aws_subnet.private_1a.id
   route_table_id = aws_route_table.private_rt.id
@@ -185,15 +162,6 @@ resource "aws_route_table" "private_rt_with_nat" {
   tags = {
     Name = "private-route-table-with-nat"
   }
-}
-
-resource "aws_route" "root_account_peer_pvt_nat" {
-  count = var.peer_vpc_enabled ? 1 : 0
-  route_table_id = aws_route_table.private_rt_with_nat.id
-
-  destination_cidr_block = var.peer_vpc_cidr
-
-  vpc_peering_connection_id = aws_vpc_peering_connection.main.id
 }
 
 resource "aws_route_table_association" "private_1a_with_nat" {

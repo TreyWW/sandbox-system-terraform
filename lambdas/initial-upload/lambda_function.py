@@ -58,24 +58,36 @@ def lambda_handler(event, context):
         }
     )
 
-    cloudmap_service = cloudmap.create_service(
-        Name=f"{pull_request_number}-{repository_name}-{user}.{registry}.{domain}",
-        NamespaceId=environ.get("cloudmap_namespace_id"),
-        DnsConfig={
-            "NamespaceId": environ.get("cloudmap_namespace_id"),
-            "RoutingPolicy": "MULTIVALUE",
-            "DnsRecords": [
-                {
-                    "Type": "A",
-                    "TTL": 60
-                },
-                {
-                    "Type": "SRV",
-                    "TTL": 60
-                }
-            ]
-        }
-    )
+    try:
+        cloudmap_service = cloudmap.create_service(
+            Name=f"{pull_request_number}-{repository_name}-{user}.{registry}.{domain}",
+            NamespaceId=environ.get("cloudmap_namespace_id"),
+            # DnsConfig={
+            #     "NamespaceId": environ.get("cloudmap_namespace_id"),
+            #     "RoutingPolicy": "MULTIVALUE",
+            #     "DnsRecords": [
+            #         {
+            #             "Type": "A",
+            #             "TTL": 60
+            #         },
+            #         {
+            #             "Type": "SRV",
+            #             "TTL": 60
+            #         }
+            #     ]
+            # }
+        )
+    except cloudmap.exceptions.ServiceAlreadyExists:
+        print("CloudMap already exists")
+
+        cloudmap_service = cloudmap.get_service(
+            Id=f"{pull_request_number}-{repository_name}-{user}.{registry}.{domain}"
+        )
+
+        print(cloudmap_service)
+
+
+    print(f"{company_prefix}-{service_uuid}")
 
     ecs_task_definition = ecs.register_task_definition(
         family=f"{company_prefix}-{service_uuid}",
@@ -163,9 +175,9 @@ def lambda_handler(event, context):
         serviceRegistries=[
             {
                 "registryArn": cloudmap_service["Service"]["Arn"],
-                "port": 80,  # todo allow port config
+                # "port": 80,  # todo allow port config
                 "containerName": "sandbox",
-                "containerPort": 80  # todo allow port config
+                # "containerPort": 80  # todo allow port config
             }
         ],
         tags=[
