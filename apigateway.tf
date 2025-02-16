@@ -31,14 +31,14 @@ resource "aws_api_gateway_rest_api" "create_infrastructure_endpoint" {
 
 resource "aws_api_gateway_method" "create_infrastructure_method" {
   rest_api_id   = aws_api_gateway_rest_api.create_infrastructure_endpoint.id
-  resource_id   = aws_api_gateway_rest_api.create_infrastructure_endpoint.root_resource_id # Changed this line
+  resource_id = aws_api_gateway_rest_api.create_infrastructure_endpoint.root_resource_id # Changed this line
   http_method   = "POST"
   authorization = "NONE"
 }
 
 resource "aws_api_gateway_integration" "create_infrastructure_integration" {
   rest_api_id             = aws_api_gateway_rest_api.create_infrastructure_endpoint.id
-  resource_id             = aws_api_gateway_rest_api.create_infrastructure_endpoint.root_resource_id # Changed this line
+  resource_id = aws_api_gateway_rest_api.create_infrastructure_endpoint.root_resource_id # Changed this line
   http_method             = aws_api_gateway_method.create_infrastructure_method.http_method
   integration_http_method = "POST"
   type                    = "AWS_PROXY"
@@ -66,8 +66,8 @@ resource "aws_api_gateway_stage" "create_infrastructure_stage" {
 
   access_log_settings {
     destination_arn = aws_cloudwatch_log_group.api_gateway.arn
-    format          = jsonencode({
-      "apiId":  "$context.apiId",
+    format = jsonencode({
+      "apiId" : "$context.apiId",
       "requestId" : "$context.requestId",
       "httpMethod" : "$context.httpMethod",
       "path" : "$context.path",
@@ -113,7 +113,7 @@ resource "aws_iam_policy" "api_gateway_execution_role_lambda_proxy_policy" {
     "Version" : "2012-10-17",
     "Statement" : [
       {
-        "Sid": "InvokeLambda",
+        "Sid" : "InvokeLambda",
         "Effect" : "Allow",
         "Action" : [
           "lambda:InvokeFunction"
@@ -131,7 +131,6 @@ resource "aws_iam_role_policy_attachment" "api_gateway_execution_role_lambda_pro
   policy_arn = aws_iam_policy.api_gateway_execution_role_lambda_proxy_policy.arn
 }
 
-
 resource "aws_api_gateway_rest_api" "user_service_endpoint" {
   name        = "${var.company_prefix}_user_service_endpoint"
   description = "User Service Endpoint"
@@ -146,6 +145,13 @@ resource "aws_api_gateway_method" "user_service_method" {
   authorization = "NONE"
 }
 
+resource "aws_api_gateway_method" "proxy_method" {
+  rest_api_id   = aws_api_gateway_rest_api.user_service_endpoint.id
+  resource_id   = aws_api_gateway_resource.proxy.id
+  http_method   = "ANY"
+  authorization = "NONE"
+}
+
 resource "aws_api_gateway_integration" "user_service_integration" {
   rest_api_id             = aws_api_gateway_rest_api.user_service_endpoint.id
   resource_id             = aws_api_gateway_rest_api.user_service_endpoint.root_resource_id
@@ -155,14 +161,36 @@ resource "aws_api_gateway_integration" "user_service_integration" {
   uri                     = aws_lambda_function.lambda_proxy.invoke_arn
 }
 
+resource "aws_api_gateway_integration" "proxy_integration" {
+  rest_api_id             = aws_api_gateway_rest_api.user_service_endpoint.id
+  resource_id             = aws_api_gateway_resource.proxy.id
+  http_method             = aws_api_gateway_method.proxy_method.http_method
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.lambda_proxy.invoke_arn
+}
+
+
 resource "aws_api_gateway_deployment" "user_service_deployment" {
   rest_api_id = aws_api_gateway_rest_api.user_service_endpoint.id
 
   triggers = {
-    redeployment = sha1(jsonencode(aws_api_gateway_rest_api.user_service_endpoint))
+    redeployment = sha1(
+      jsonencode(
+        [
+          aws_api_gateway_rest_api.user_service_endpoint,
+          aws_api_gateway_method.user_service_method,
+          aws_api_gateway_integration.user_service_integration,
+          aws_api_gateway_method.proxy_method,
+          aws_api_gateway_integration.proxy_integration
+        ]
+      ))
   }
 
-  depends_on = [aws_api_gateway_integration.user_service_integration]
+  depends_on = [
+    aws_api_gateway_integration.user_service_integration,
+    aws_api_gateway_integration.proxy_integration
+  ]
 
   lifecycle {
     create_before_destroy = true
@@ -175,6 +203,12 @@ resource "aws_api_gateway_base_path_mapping" "user_service_github_mapping" {
   domain_name = aws_api_gateway_domain_name.github_domain.domain_name
 }
 
+resource "aws_api_gateway_resource" "proxy" {
+  rest_api_id = aws_api_gateway_rest_api.user_service_endpoint.id
+  parent_id   = aws_api_gateway_rest_api.user_service_endpoint.root_resource_id
+  path_part   = "{proxy+}"
+}
+
 resource "aws_api_gateway_stage" "user_service_stage" {
   stage_name    = "production"
   rest_api_id   = aws_api_gateway_rest_api.user_service_endpoint.id
@@ -182,8 +216,8 @@ resource "aws_api_gateway_stage" "user_service_stage" {
 
   access_log_settings {
     destination_arn = aws_cloudwatch_log_group.api_gateway.arn
-    format          = jsonencode({
-      "apiId":  "$context.apiId",
+    format = jsonencode({
+      "apiId" : "$context.apiId",
       "requestId" : "$context.requestId",
       "httpMethod" : "$context.httpMethod",
       "path" : "$context.path",
