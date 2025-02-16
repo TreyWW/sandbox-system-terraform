@@ -9,6 +9,7 @@ ecs = boto3.client('ecs')
 ddb = boto3.client('dynamodb')
 cloudmap = boto3.client('servicediscovery')
 scheduler = boto3.client('scheduler')
+cloudwatch_logs = boto3.client('logs')
 
 company_prefix = environ.get("company_prefix")
 
@@ -31,7 +32,8 @@ def lambda_handler(event, context):
     repository_name = event["repository"]
     user = event["user"]
     registry = "gh"
-    domain = environ.get("domain")
+    tld = environ.get("domain")
+    full_domain = f"{pull_request_number}-{repository_name}-{user}.{registry}.{tld}"
 
     # store metadata
     ddb.put_item(
@@ -54,13 +56,23 @@ def lambda_handler(event, context):
             },
             "status": {
                 "S": "pending"
+            },
+            "domain": {
+                "S": full_domain
+            },
+            "registry": {"S": "github"},
+            "created_at": {
+                "S": datetime.now().isoformat()
+            },
+            "updated_at": {
+                "S": datetime.now().isoformat()
             }
         }
     )
 
     try:
         cloudmap_service = cloudmap.create_service(
-            Name=f"{pull_request_number}-{repository_name}-{user}.{registry}.{domain}",
+            Name=full_domain,
             NamespaceId=environ.get("cloudmap_namespace_id"),
             # DnsConfig={
             #     "NamespaceId": environ.get("cloudmap_namespace_id"),
@@ -81,7 +93,7 @@ def lambda_handler(event, context):
         print("CloudMap already exists")
 
         cloudmap_service = cloudmap.get_service(
-            Id=f"{pull_request_number}-{repository_name}-{user}.{registry}.{domain}"
+            Id=full_domain
         )
 
         print(cloudmap_service)
@@ -208,6 +220,13 @@ def lambda_handler(event, context):
         ]
     )
 
+    # using environ.get("ecs_access_log_group_name")
+
+    cloudwatch_logs.create_log_stream(
+        logGroupName=environ.get("ecs_access_log_group_name"),
+        logStreamName=f"{service_uuid}"
+    )
+
     # set service arn and desired_tasks to 1 in ddb
     ddb.update_item(
         TableName=environ.get("metadata_ddb_table"),
@@ -231,8 +250,8 @@ def lambda_handler(event, context):
 
     scheduler_schedule = scheduler.create_schedule(
         Name=f"{company_prefix}-{service_uuid}",
-        GroupName=f"{company_prefix}-scheduler-group",
-        ActionAfterCompletion="DELETE",
+        GroupName=environ.get("scheduler_group_name"),
+        ActionAfterCompletion="NONE",
         FlexibleTimeWindow={
             "Mode": "OFF"
         },
@@ -264,10 +283,11 @@ def lambda_handler(event, context):
         }
     )
 
-
-lambda_handler({
-    "pr": 1234,
-    "repository": "nginxdemo",
-    "user": "nginx",
-    "created_by_user_id": 1234
-}, None)
+    return {
+        "statusCode": 200,
+        "body": json.dumps({
+            "message": "success",
+            "service_uuid": service_uuid,
+            "domain": full_domain
+        })
+    }

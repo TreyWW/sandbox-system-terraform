@@ -2,7 +2,7 @@
 
 resource "aws_dynamodb_table" "metadata_table" {
   name           = "${var.company_prefix}-main-metadata-table"
-  billing_mode = "PAY_PER_REQUEST"
+  billing_mode   = "PAY_PER_REQUEST"
 
   point_in_time_recovery {
     enabled = true
@@ -13,7 +13,19 @@ resource "aws_dynamodb_table" "metadata_table" {
     type = "S"
   }
 
+  attribute {
+    name = "domain"
+    type = "S"
+  }
+
   hash_key = "uuid"
+
+  global_secondary_index {
+    name            = "DomainIndex"
+    hash_key        = "domain"
+    projection_type = "INCLUDE"
+    non_key_attributes = ["uuid"]
+  }
 }
 
 # -- FIELDS --

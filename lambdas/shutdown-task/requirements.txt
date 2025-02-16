@@ -1,0 +1,2 @@
+boto3==1.36.17
+boto3-stubs[ecs, dynamodb, scheduler, servicedescovery]==1.36.20

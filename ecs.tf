@@ -19,6 +19,44 @@ resource "aws_security_group" "ecs" {
   vpc_id = aws_vpc.main.id
 }
 
+
+resource "aws_vpc_security_group_ingress_rule" "ecs-ingress-443" {
+  security_group_id = aws_security_group.ecs.id
+
+  from_port                    = 443
+  to_port                      = 443
+  referenced_security_group_id = aws_security_group.lambda_proxy.id
+  ip_protocol                  = "tcp"
+}
+
+resource "aws_vpc_security_group_ingress_rule" "ecs-ingress-80" {
+  security_group_id = aws_security_group.ecs.id
+
+  from_port                    = 80
+  to_port                      = 80
+  referenced_security_group_id = aws_security_group.lambda_proxy.id
+  ip_protocol                  = "tcp"
+}
+
+resource "aws_vpc_security_group_egress_rule" "ecs-egress-443" {
+  security_group_id = aws_security_group.ecs.id
+
+  from_port                    = 443
+  to_port                      = 443
+  referenced_security_group_id = aws_security_group.fck_nat_sg.id
+  ip_protocol                  = "tcp"
+}
+
+resource "aws_vpc_security_group_egress_rule" "ecs-egress-80" {
+  security_group_id = aws_security_group.ecs.id
+
+  from_port                    = 80
+  to_port                      = 80
+  referenced_security_group_id = aws_security_group.fck_nat_sg.id
+  ip_protocol                  = "tcp"
+}
+
+
 # ecs_execution_role
 
 resource "aws_iam_role" "ecs_execution_role" {
@@ -39,6 +77,31 @@ resource "aws_iam_role" "ecs_execution_role" {
       ]
     }
   )
+}
+
+resource "aws_iam_policy" "ecs_execution_role" {
+  name = "${var.company_prefix}-sandbox-ecs-execution-role-policy"
+
+  policy = jsonencode(
+    {
+      "Version" : "2012-10-17",
+      "Statement" : [
+        {
+          "Effect" : "Allow",
+          "Action" : [
+            "logs:CreateLogStream",
+            "logs:PutLogEvents"
+          ],
+          "Resource" : "arn:aws:logs:${var.region}:${local.account_id}:log-group:${aws_cloudwatch_log_group.ecs.name}:log-stream:*"
+        } # todo add ECR
+      ]
+    }
+  )
+}
+
+resource "aws_iam_role_policy_attachment" "ecs_execution_role" {
+  role       = aws_iam_role.ecs_execution_role.name
+  policy_arn = aws_iam_policy.ecs_execution_role.arn
 }
 
 resource "aws_iam_role" "ecs_task_role" {

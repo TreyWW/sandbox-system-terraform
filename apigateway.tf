@@ -59,7 +59,6 @@ resource "aws_api_gateway_deployment" "create_infrastructure_deployment" {
   }
 }
 
-
 resource "aws_api_gateway_stage" "create_infrastructure_stage" {
   stage_name    = "production"
   rest_api_id   = aws_api_gateway_rest_api.create_infrastructure_endpoint.id
@@ -90,6 +89,49 @@ resource "aws_api_gateway_stage" "create_infrastructure_stage" {
 
 /* Normal request to proxy to users instance api gateway */
 
+resource "aws_iam_role" "api_gateway_execution_role_lambda_proxy" {
+  name = "${var.company_prefix}-apigw-lambda-proxy-execution-role"
+
+  assume_role_policy = jsonencode({
+    "Version" : "2012-10-17",
+    "Statement" : [
+      {
+        "Effect" : "Allow",
+        "Principal" : {
+          "Service" : "apigateway.amazonaws.com"
+        },
+        "Action" : "sts:AssumeRole"
+      }
+    ]
+  })
+}
+
+resource "aws_iam_policy" "api_gateway_execution_role_lambda_proxy_policy" {
+  name = "${var.company_prefix}-apigw-lambda-proxy-execution-role-policy"
+
+  policy = jsonencode({
+    "Version" : "2012-10-17",
+    "Statement" : [
+      {
+        "Sid": "InvokeLambda",
+        "Effect" : "Allow",
+        "Action" : [
+          "lambda:InvokeFunction"
+        ],
+        "Resource" : [
+          aws_lambda_function.lambda_proxy.arn
+        ]
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "api_gateway_execution_role_lambda_proxy_policy_attachment" {
+  role       = aws_iam_role.api_gateway_execution_role_lambda_proxy.id
+  policy_arn = aws_iam_policy.api_gateway_execution_role_lambda_proxy_policy.arn
+}
+
+
 resource "aws_api_gateway_rest_api" "user_service_endpoint" {
   name        = "${var.company_prefix}_user_service_endpoint"
   description = "User Service Endpoint"
@@ -108,7 +150,7 @@ resource "aws_api_gateway_integration" "user_service_integration" {
   rest_api_id             = aws_api_gateway_rest_api.user_service_endpoint.id
   resource_id             = aws_api_gateway_rest_api.user_service_endpoint.root_resource_id
   http_method             = aws_api_gateway_method.user_service_method.http_method
-  integration_http_method = "ANY"
+  integration_http_method = "POST"
   type                    = "AWS_PROXY"
   uri                     = aws_lambda_function.lambda_proxy.invoke_arn
 }
