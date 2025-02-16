@@ -14,6 +14,25 @@ cloudwatch_logs = boto3.client('logs')
 company_prefix = environ.get("company_prefix")
 
 
+def update_schedule(schedule_name: str, new_properties: dict):
+    existing_schedule = scheduler.get_schedule(
+        GroupName=environ.get("scheduler_group_name"),
+        Name=schedule_name
+    )
+
+    filtered_resp = {
+        k: v
+        for k, v in existing_schedule.items()
+        if k not in ["ResponseMetadata", "Arn", "CreationDate", "LastModificationDate"]
+
+    }
+
+    merged_response = filtered_resp | new_properties
+
+    scheduler_schedule = scheduler.update_schedule(**merged_response)
+
+    return scheduler_schedule
+
 def lambda_handler(event, context):
     service_uuid = event["service_uuid"]
 
@@ -52,6 +71,14 @@ def lambda_handler(event, context):
     # Check if there are events
     if response.get("events") and not event.get("force_shutdown"):
         print("Service is still being used")
+
+        update_schedule(f"{company_prefix}-{service_uuid}", {
+            "ScheduleExpression": f"at({(datetime.now() + timedelta(minutes=10)).strftime('%Y-%m-%dT%H:%M:%S')})",
+            "FlexibleTimeWindow": {
+                "Mode": "OFF"
+            }
+        })
+
         return {
             "statusCode": 400,
             "body": json.dumps({

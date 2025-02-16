@@ -213,20 +213,6 @@ resource "aws_lambda_function" "initial_service_lambda" {
 
 /* Lambda for shutdown the instance */
 
-resource "aws_security_group" "shutdown_instance_lambda" {
-  name        = "${var.company_prefix}-shutdown-instance-lambda"
-  description = "Security group for lambda function to shutdown the ECS service"
-  vpc_id      = aws_vpc.main.id
-}
-
-resource "aws_vpc_security_group_egress_rule" "shutdown_instance_lambda_egress_fcknat" {
-  security_group_id = aws_security_group.shutdown_instance_lambda.id
-
-  referenced_security_group_id = aws_security_group.fck_nat_sg.id
-
-  ip_protocol = "-1"
-}
-
 resource "aws_iam_role" "shutdown_instance_lambda_execution_role" {
   name = "${var.company_prefix}-shutdown-instance-lambda-execution-role"
 
@@ -385,6 +371,166 @@ resource "aws_lambda_function" "shutdown_instance_lambda" {
   ]
 }
 
+
+/* Lambda for managing the instance */
+
+resource "aws_iam_role" "manage_instance_lambda_execution_role" {
+  name = "${var.company_prefix}-manage-instance-lambda-execution-role"
+
+  assume_role_policy = jsonencode({
+    "Version" : "2012-10-17",
+    "Statement" : [
+      {
+        "Effect" : "Allow",
+        "Principal" : {
+          "Service" : "lambda.amazonaws.com"
+        },
+        "Action" : "sts:AssumeRole"
+      }
+    ]
+  })
+}
+
+resource "aws_iam_policy" "manage_instance_lambda_execution_role_policy" {
+  name = "${var.company_prefix}-manage-instance-lambda-execution-role-policy"
+
+  policy = jsonencode({
+    "Version" : "2012-10-17",
+    "Statement" : [
+      {
+        "Sid": "ECS"
+        "Effect" : "Allow",
+        "Action" : [
+          "ecs:UpdateService",
+        ],
+        "Resource" : [
+          "arn:aws:ecs:${var.region}:${local.account_id}:service/${var.company_prefix}-*",
+          "arn:aws:ecs:${var.region}:${local.account_id}:service/demo-sandbox-system-sandbox-cluster/demo-sandbox-system-*"
+        ]
+      },
+      {
+        "Sid": "CloudWatch",
+        "Effect" : "Allow",
+        "Action" : [
+          "logs:FilterLogEvents",
+          "logs:PutMetricFilter",
+          "logs:DeleteMetricFilter",
+          "logs:DescribeMetricFilters"
+        ],
+        "Resource" : [
+          "arn:aws:logs:${var.region}:${local.account_id}:log-group:${aws_cloudwatch_log_group.ecs_access_logs.name}:log-stream:*",
+          "arn:aws:logs:${var.region}:${local.account_id}:log-group:${aws_cloudwatch_log_group.ecs_access_logs.name}"
+        ]
+      },
+      {
+        "Sid": "DynamoDB",
+        "Effect" : "Allow",
+        "Action" : [
+          "dynamodb:UpdateItem",
+          "dynamodb:GetItem"
+        ],
+        "Resource" : "arn:aws:dynamodb:${var.region}:${local.account_id}:table/${aws_dynamodb_table.metadata_table.name}"
+      },
+      {
+        "Sid" : "AWSLambdaVPCAccessExecutionPermissions",
+        "Effect" : "Allow",
+        "Action" : [
+          "logs:CreateLogGroup",
+          "logs:CreateLogStream",
+          "logs:PutLogEvents",
+          "ec2:CreateNetworkInterface",
+          "ec2:DescribeNetworkInterfaces",
+          "ec2:DescribeSubnets",
+          "ec2:DeleteNetworkInterface",
+          "ec2:AssignPrivateIpAddresses",
+          "ec2:UnassignPrivateIpAddresses"
+        ],
+        "Resource" : "*"
+      },
+      {
+        "Sid": "PassRoleECSTaskRoles",
+        "Effect": "Allow",
+        "Action": "iam:PassRole",
+        "Resource": [
+          aws_iam_role.ecs_task_role.arn,
+          aws_iam_role.ecs_execution_role.arn,
+          aws_iam_role.scheduler_role_invoke_shutdown_lambda.arn
+        ]
+      },
+      {
+        "Sid": "EventBridgeGetSchedule",
+        "Effect": "Allow",
+        "Action": [
+          "scheduler:GetSchedule",
+          "scheduler:UpdateSchedule"
+        ],
+        "Resource": "arn:aws:scheduler:${var.region}:${local.account_id}:schedule/${aws_scheduler_schedule_group.default.name}/*"
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "manage_instance_lambda_execution_role_policy_attachment" {
+  role       = aws_iam_role.manage_instance_lambda_execution_role.id
+  policy_arn = aws_iam_policy.manage_instance_lambda_execution_role_policy.arn
+}
+
+resource "aws_lambda_layer_version" "manage_instance_dependencies" {
+  filename   = "lambdas/shutdown-task/python.zip"
+  layer_name = "${var.company_prefix}-manage-instance-dependencies"
+
+  compatible_runtimes = ["python3.9"]
+}
+
+data "archive_file" "manage_instance_lambda_code" {
+  type        = "zip"
+  source_file = "lambdas/manage-instance/lambda_function.py"
+  output_path = "lambdas/manage-instance/lambda_function.zip"
+}
+
+resource "aws_lambda_function" "manage_instance_lambda" {
+  # code is in lambdas/initial-upload/lambda_function.py
+  filename      = "lambdas/manage-instance/lambda_function.zip"
+  source_code_hash = data.archive_file.manage_instance_lambda_code.output_base64sha256
+  function_name = "${var.company_prefix}-manage-instance"
+
+  handler = "lambda_function.lambda_handler"
+  role    = aws_iam_role.manage_instance_lambda_execution_role.arn
+  runtime = "python3.9"
+  timeout = 20
+
+  environment {
+    variables = {
+      "company_prefix"        = var.company_prefix
+      "domain"                = var.domain
+      "metadata_ddb_table"    = aws_dynamodb_table.metadata_table.name
+      "ecs_cluster_arn"       = aws_ecs_cluster.main.arn,
+      "ecs_access_log_group_name" = aws_cloudwatch_log_group.ecs_access_logs.name
+      "scheduler_group_name" = aws_scheduler_schedule_group.default.name
+    }
+  }
+
+  logging_config {
+    log_group  = aws_cloudwatch_log_group.lambda_shutdown_instance.name
+    log_format = "Text"
+  }
+
+  layers = [
+    aws_lambda_layer_version.manage_instance_dependencies.arn
+  ]
+
+  depends_on = [
+    aws_iam_role_policy_attachment.manage_instance_lambda_execution_role_policy_attachment,
+    aws_lambda_layer_version.manage_instance_dependencies,
+    aws_iam_role.ecs_task_role,
+    aws_iam_role.ecs_execution_role,
+    aws_cloudwatch_log_group.lambda_shutdown_instance,
+    aws_cloudwatch_log_group.ecs,
+    aws_dynamodb_table.metadata_table,
+    aws_ecs_cluster.main,
+    aws_vpc.main
+  ]
+}
 
 # attach layer
 

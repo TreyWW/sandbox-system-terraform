@@ -26,7 +26,17 @@ resource "aws_dynamodb_table" "metadata_table" {
     projection_type = "INCLUDE"
     non_key_attributes = ["uuid"]
   }
+
+  tags = {
+    "Hello" = "Test"
+  }
 }
+
+
+output "my_dynamodb_output_arn" {
+  value = aws_dynamodb_table.metadata_table.arn
+}
+
 
 # -- FIELDS --
 # uuid

@@ -87,6 +87,71 @@ resource "aws_api_gateway_stage" "create_infrastructure_stage" {
   }
 }
 
+/* Manage Instance */
+
+resource "aws_api_gateway_rest_api" "manage_instance_endpoint" {
+  name        = "${var.company_prefix}_manage_instance_endpoint"
+  description = "Manage Sandboxes Endpoint"
+}
+
+resource "aws_api_gateway_method" "manage_instance_method" {
+  rest_api_id   = aws_api_gateway_rest_api.manage_instance_endpoint.id
+  resource_id = aws_api_gateway_rest_api.manage_instance_endpoint.root_resource_id # Changed this line
+  http_method   = "POST"
+  authorization = "NONE"
+}
+
+resource "aws_api_gateway_integration" "manage_instance_integration" {
+  rest_api_id             = aws_api_gateway_rest_api.manage_instance_endpoint.id
+  resource_id = aws_api_gateway_rest_api.manage_instance_endpoint.root_resource_id
+  http_method             = aws_api_gateway_method.manage_instance_method.http_method
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.manage_instance_lambda.invoke_arn
+}
+
+resource "aws_api_gateway_deployment" "manage_instance_deployment" {
+  rest_api_id = aws_api_gateway_rest_api.manage_instance_endpoint.id
+
+  triggers = {
+    redeployment = sha1(jsonencode(aws_api_gateway_rest_api.manage_instance_endpoint))
+  }
+
+  depends_on = [aws_api_gateway_integration.manage_instance_integration]
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
+resource "aws_api_gateway_stage" "manage_instance_stage" {
+  stage_name    = "production"
+  rest_api_id   = aws_api_gateway_rest_api.manage_instance_endpoint.id
+  deployment_id = aws_api_gateway_deployment.manage_instance_deployment.id
+
+  access_log_settings {
+    destination_arn = aws_cloudwatch_log_group.api_gateway.arn
+    format = jsonencode({
+      "apiId" : "$context.apiId",
+      "requestId" : "$context.requestId",
+      "httpMethod" : "$context.httpMethod",
+      "path" : "$context.path",
+      "domainName" : "$context.domainName",
+      "sourceIp" : "$context.identity.sourceIp",
+      "userAgent" : "$context.identity.userAgent",
+      "integrationStatus" : "$context.integration.status",
+      "integrationLatency" : "$context.integration.latency",
+      "integrationError" : "$context.integration.error",
+      "integrationRequestId" : "$context.integration.requestId",
+      "errorMessage" : "$context.error.message",
+      "errorResponseType" : "$context.error.responseType",
+      "responseLatency" : "$context.responseLatency",
+      "responseLength" : "$context.responseLength",
+      "requestTimeEpoch" : "$context.requestTimeEpoch"
+    })
+  }
+}
+
 /* Normal request to proxy to users instance api gateway */
 
 resource "aws_iam_role" "api_gateway_execution_role_lambda_proxy" {
@@ -169,7 +234,6 @@ resource "aws_api_gateway_integration" "proxy_integration" {
   type                    = "AWS_PROXY"
   uri                     = aws_lambda_function.lambda_proxy.invoke_arn
 }
-
 
 resource "aws_api_gateway_deployment" "user_service_deployment" {
   rest_api_id = aws_api_gateway_rest_api.user_service_endpoint.id
