@@ -25,4 +25,17 @@ provider "aws" {
   }
 }
 
+# For cloudfront ACM
+provider "aws" {
+  region = "us-east-1"
+  alias = "us-east-1"
+
+  default_tags {
+    tags = {
+      created_via = "${var.company_prefix}-terraform"
+      project = "sandbox-system"
+    }
+  }
+}
+
 data "aws_caller_identity" "current" {}

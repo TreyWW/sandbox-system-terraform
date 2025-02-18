@@ -19,74 +19,127 @@ config = Config(
 cloudmap_client = boto3.client('servicediscovery', config=config)
 cloudmap_namespace = environ.get("cloudmap_namespace")
 cloudwatch_client = boto3.client('logs')
+lambda_client = boto3.client('lambda')
 
 ddb = boto3.client('dynamodb')
+
+env_full_domain = environ.get("full_domain")
+env_startup_task_lambda_arn = environ.get("startup_task_lambda_arn")
+
 
 # In-memory cache with TTL of 60 seconds for service resolution
 # cache = TTLCache(maxsize=1000, ttl=60)
 
-def get_service_for_subdomain(service_name):
+def handle_no_active_instances(service_name, registry, full_domain, host) -> dict:
+    service_uuid = get_uuid_from_dynamodb_domain(host)
+
+    print(f"No active instances found for {service_name}.{registry}.{full_domain}. Service UUID found: {service_uuid} from host {host}")
+
+    lambda_client.invoke(
+        FunctionName=env_startup_task_lambda_arn,
+        InvocationType='Event',
+        Payload=json.dumps({
+            "service_uuid": service_uuid
+        })
+    )
+
+    return {
+        "statusCode": 302,
+        "headers": {
+            "Location": f"https://sb.{full_domain}/starting/{registry}/{service_name}"
+        }
+    }
+
+
+def get_service_for_subdomain(service_name, registry, full_domain, host) -> str | dict:
+    full_service_name = f"{service_name}.{registry}.{full_domain}"
     # if service_name in cache:
     # return cache[service_name]
 
     try:
-        print(f"getting cloudmap instance for {cloudmap_namespace} name {service_name}")
+        print(f"getting cloudmap instance for {cloudmap_namespace} name {full_service_name}")
         response = cloudmap_client.discover_instances(
             NamespaceName=cloudmap_namespace,
-            ServiceName=service_name
+            ServiceName=full_service_name
         )
         instances = response.get('Instances', [])
+
         if not instances:
-            # todo add the ability to send user to static page that wakes
-            raise Exception(f"No sandbox found for {service_name}")
+            return handle_no_active_instances(service_name, registry, full_domain, host)
 
         # Assume the first instance is the correct one as there should only ever be 1
-        service_endpoint = instances[0]['Attributes'].get('AWS_INSTANCE_IPV4', '')
+        service_endpoint = instances[0]['Attributes'].get('AWS_INSTANCE_IPV4', None)
         if not service_endpoint:
-            raise Exception(f"No valid endpoint found for {service_name}")
+            print(f"No valid endpoint found for {full_service_name}")
 
         # Cache the result
         # cache[service_name] = service_endpoint
 
         return service_endpoint
     except Exception as e:
-        raise Exception(f"Failed to find sandbox: {str(e)}")
+        print(e)
+        return {
+            "statusCode": 500,
+            "body": "Internal Server Error"
+        }
 
+
+def get_uuid_from_dynamodb_domain(domain) -> str | None:
+    dynamo_row = ddb.query(
+        TableName=environ.get("metadata_ddb_table_name", ""),
+        IndexName="DomainIndex",
+        KeyConditionExpression="#d = :d",
+        ExpressionAttributeNames={"#d": "domain"},
+        ExpressionAttributeValues={":d": {"S": domain}}
+    )
+
+    if dynamo_row.get("Items"):
+        return dynamo_row["Items"][0]["uuid"]["S"]
+    return None
 
 def lambda_handler(event, context):
     try:
-        # Extract PR, repo, user from subdomain in the 'Host' header
         print(event['requestContext']['domainName'])
         host = event['requestContext']['domainName']
         parts = host.split('.')
 
-        # Assume the structure is pr1234-strelix-org.gh.example.com | todo: support .co.uk etc
-        if len(parts) < 4:
+        # Assume the structure is pr-repo-user.registry.example.com (or multi-tld like .co.uk)
+        if not 4 <= len(parts) <= 5:
             raise Exception("Invalid subdomain format")
 
         service_name = parts[0]
         registry = parts[1]
+        full_domain = ".".join(parts[2:])
 
-        # Get the service endpoint from CloudMap or cache
-        service_endpoint = get_service_for_subdomain(f"{service_name}.{registry}.{parts[2]}.{parts[3]}")  # todo handle TLDs like .co.uk
+        if env_full_domain != full_domain:
+            print(f"Full domain mismatch: {full_domain} != {env_full_domain}")
+            return {
+                "statusCode": 404,
+                "body": "Not Found"
+            }
 
-        dynamo_row = ddb.query(
-            TableName=environ.get("metadata_ddb_table_name"),
-            IndexName="DomainIndex",
-            KeyConditionExpression="#d = :d",
-            ExpressionAttributeNames={"#d": "domain"},
-            ExpressionAttributeValues={":d": {"S": host}}
+        service_endpoint = get_service_for_subdomain(
+            service_name,
+            registry,
+            full_domain,
+            host
         )
 
-        if dynamo_row.get("Items"):
+        # No active instances
+        if isinstance(service_endpoint, dict):
+            return service_endpoint
+
+        service_uuid = get_uuid_from_dynamodb_domain(host)
+
+        if service_uuid:
             log_timestamp = int(time.time() * 1000)
             log_event = {
                 "logEvents": [{
-                        "timestamp": log_timestamp,
-                        "message": f"Request at {log_timestamp} for {host}"
-                    }],
+                    "timestamp": log_timestamp,
+                    "message": f"Request at {log_timestamp} for {host}"
+                }],
                 "logGroupName": environ.get("ecs_access_log_group_name"),
-                "logStreamName": dynamo_row["Items"][0]["uuid"]["S"]
+                "logStreamName": service_uuid
             }
 
             cloudwatch_client.put_log_events(
@@ -104,7 +157,7 @@ def lambda_handler(event, context):
             response = requests.get(url, headers=event['headers'], data=event['body'], timeout=10)  # todo add multiple timeout options
         elif event["httpMethod"] == "POST":
             response = requests.post(url, headers=event['headers'], data=event['body'], timeout=10)
-        elif event["httpMethod"] ==  "PUT":
+        elif event["httpMethod"] == "PUT":
             response = requests.put(url, headers=event['headers'], data=event['body'], timeout=10)
         elif event["httpMethod"] == "DELETE":
             response = requests.delete(url, headers=event['headers'], data=event['body'], timeout=10)

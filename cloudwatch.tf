@@ -14,6 +14,10 @@ resource "aws_cloudwatch_log_group" "lambda_shutdown_instance" {
   name = "/${var.company_prefix}-sandbox/lambda/shutdown-task/"
 }
 
+resource "aws_cloudwatch_log_group" "lambda_startup_task" {
+  name = "/${var.company_prefix}-sandbox/lambda/startup-task/"
+}
+
 resource "aws_cloudwatch_log_group" "api_gateway" {
   name = "/${var.company_prefix}-sandbox/api_gateway/"
 }

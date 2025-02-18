@@ -1,3 +1,15 @@
+/* ACM Cert for Sandbox Management */
+
+resource "aws_acm_certificate" "sandbox_subdomain" {
+  domain_name       = "sb.${var.domain}"
+  validation_method = "DNS"
+  tags = {
+    Name = "${var.company_prefix}-sandbox-management-dns-for-cloudfront"
+  }
+
+  provider = aws.us-east-1
+}
+
 resource "random_id" "random_static_assets_id" {
   byte_length = 8
 }
@@ -43,6 +55,13 @@ resource "aws_s3_bucket" "cloudfront_access_logs" {
   bucket = "${var.company_prefix}-cf-access-logs-${random_id.random_static_assets_id.hex}"
 }
 
+resource "aws_s3_bucket_ownership_controls" "cloudfront_access_logs" {
+  bucket = aws_s3_bucket.cloudfront_access_logs.id
+
+  rule {
+    object_ownership = "BucketOwnerPreferred"
+  }
+}
 
 resource "aws_cloudfront_origin_access_control" "loading_sandbox_s3_oac" {
   origin_access_control_origin_type = "s3"
@@ -63,6 +82,8 @@ resource "aws_cloudfront_distribution" "loading_sandbox" {
   comment         = "Loading Sandbox"
   price_class = "PriceClass_100"
 
+  aliases = ["sb.strelix.uk"]
+
   default_cache_behavior {
     allowed_methods  = ["GET", "HEAD"]
     cached_methods   = ["GET", "HEAD"]
@@ -73,8 +94,24 @@ resource "aws_cloudfront_distribution" "loading_sandbox" {
     cache_policy_id        = "658327ea-f89d-4fab-a63d-7e88639e58f6"
   }
 
+  ordered_cache_behavior {
+    allowed_methods = ["GET", "HEAD"]
+    cached_methods = ["GET", "HEAD"]
+    path_pattern           = "/starting/*"
+    target_origin_id       = "static-assets"
+    viewer_protocol_policy = "redirect-to-https"
+    cache_policy_id        = "658327ea-f89d-4fab-a63d-7e88639e58f6"
+
+    function_association {
+      event_type   = "viewer-request"
+      function_arn = aws_cloudfront_function.starting_task.arn
+    }
+  }
+
   viewer_certificate {
-    cloudfront_default_certificate = true
+    cloudfront_default_certificate = false
+    ssl_support_method = "sni-only"
+    acm_certificate_arn = aws_acm_certificate.sandbox_subdomain.arn
   }
 
   restrictions {
@@ -94,4 +131,19 @@ resource "aws_cloudfront_origin_access_control" "static_assets" {
   origin_access_control_origin_type = "s3"
   signing_behavior                  = "always"
   signing_protocol                  = "sigv4"
+}
+
+resource "aws_cloudfront_function" "starting_task" {
+  name    = "${var.company_prefix}-starting-task"
+  runtime = "cloudfront-js-2.0"
+  comment = "Redirects the user if prefix /starting/ to the loading_sandbox.html template"
+  publish = true
+  code    = file("${path. module}/lambdas/starting-cloudfront-func/lambda_function.js")
+}
+
+/* Outputs */
+
+output "sb_domain_cloudfront" {
+  value = aws_cloudfront_distribution.loading_sandbox.domain_name
+  description = "CloudFront domain name for the loading sandbox. Add A record for sb.domain -> this url"
 }

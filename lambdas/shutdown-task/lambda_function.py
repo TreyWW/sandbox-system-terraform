@@ -88,7 +88,7 @@ def lambda_handler(event, context):
 
     service_arn = dynamo_row["Item"]["service_arn"]["S"]
 
-    update_response = ecs.update_service(
+    ecs.update_service(
         cluster=environ.get("ecs_cluster_arn"),
         service=service_arn,
         desiredCount=0
@@ -101,10 +101,16 @@ def lambda_handler(event, context):
                 "S": service_uuid
             }
         },
-        UpdateExpression="SET desired_tasks = :desired_tasks",
+        UpdateExpression="SET desired_tasks = :desired_tasks, task_status = :task_status, next_shutdown = :next_shutdown",
         ExpressionAttributeValues={
             ":desired_tasks": {
                 "N": "0"
+            },
+            ":task_status": {
+                "S": "STOPPED"
+            },
+            ":next_shutdown": {
+                "S": ""
             }
         }
     )
@@ -125,7 +131,7 @@ def lambda_handler(event, context):
 
         merged_response = filtered_resp | {"State": "DISABLED"}
 
-        scheduler_schedule = scheduler.update_schedule(**merged_response)
+        scheduler.update_schedule(**merged_response)
 
     return {
         "statusCode": 200,

@@ -54,7 +54,7 @@ def lambda_handler(event, context):
             "user": {
                 "S": event["user"]
             },
-            "status": {
+            "task_status": {
                 "S": "pending"
             },
             "domain": {
@@ -272,12 +272,12 @@ def lambda_handler(event, context):
                 "S": service_uuid
             }
         },
-        UpdateExpression="SET shutdown_schedule_arn = :shutdown_schedule_arn, next_shutdown = :next_shutdown",
+        UpdateExpression="SET shutdown_schedule_arn = :shutdown_schedule_arn, next_shutdown_at = :next_shutdown_at",
         ExpressionAttributeValues={
             ":shutdown_schedule_arn": {
                 "S": scheduler_schedule["ScheduleArn"]
             },
-            ":next_shutdown": {
+            ":next_shutdown_at": {
                 "S": in_10_mins_datetime.strftime("%Y-%m-%dT%H:%M:%S")
             }
         }

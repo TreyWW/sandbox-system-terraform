@@ -13,9 +13,11 @@
             background-color: #f4f4f4;
             font-family: Arial, sans-serif;
         }
+
         .loading-container {
             text-align: center;
         }
+
         .spinner {
             border: 4px solid rgba(0, 0, 0, 0.1);
             border-left-color: #000;
@@ -25,33 +27,44 @@
             animation: spin 1s linear infinite;
             margin: 10px auto;
         }
+
         @keyframes spin {
-            from { transform: rotate(0deg); }
-            to { transform: rotate(360deg); }
+            from {
+                transform: rotate(0deg);
+            }
+            to {
+                transform: rotate(360deg);
+            }
         }
     </style>
 </head>
 <body>
-    <div class="loading-container">
-        <div class="spinner"></div>
-        <p>Spinning up sandbox, please wait...</p>
-    </div>
+<div class="loading-container">
+    <div class="spinner"></div>
+    <p>Spinning up sandbox, please wait...</p>
+</div>
 
-    <script>
-        async function checkStatus() {
-            try {
-                const response = await fetch(""); // TODO: set URL api gateway URL
-                const data = await response.json();
+<script>
+    function checkAndRedirect() {
+        // Extract the deployment preview URL from the path
+        const pathParts = window.location.pathname.split("/starting/");  // e.g. ['', 'gh/2-nginxdemo-nginx']
+        if (pathParts.length < 2) return;
 
-                if (data.status === "available") {
-                    window.location.href = data.redirect;
-                }
-            } catch (error) {
-                console.error("Error checking status:", error);
-            }
-        }
+        const currentDomain = window.location.hostname.split('.').slice(-2).join('.'); // Get domain.com from sb.domain.com
 
-        setInterval(checkStatus, 5000);
-    </script>
+        const pathAfterStarting = pathParts[1].split('/');
+        const registry = pathAfterStarting[0]
+        const serviceName = pathAfterStarting[1]
+
+        const targetUrl = `https://${serviceName}.${registry}.${currentDomain}`
+
+        // Redirect to the target URL
+        window.location.href = targetUrl;
+    }
+
+    window.onload = function () {
+        setTimeout(checkAndRedirect, 10000);
+    };
+</script>
 </body>
 </html>
