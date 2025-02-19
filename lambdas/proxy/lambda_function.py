@@ -35,13 +35,25 @@ def handle_no_active_instances(service_name, registry, full_domain, host) -> dic
 
     print(f"No active instances found for {service_name}.{registry}.{full_domain}. Service UUID found: {service_uuid} from host {host}")
 
-    lambda_client.invoke(
-        FunctionName=env_startup_task_lambda_arn,
-        InvocationType='Event',
-        Payload=json.dumps({
-            "service_uuid": service_uuid
-        })
+    dynamo_row = ddb.query(
+        TableName=environ.get("metadata_ddb_table_name", ""),
+        KeyConditionExpression="#d = :d",
+        ExpressionAttributeNames={"#d": "uuid"},
+        ExpressionAttributeValues={":d": {"S": service_uuid}}
     )
+
+    if dynamo_row.get("Items") and dynamo_row["Items"][0].get("desired_tasks"):
+        current_desired_tasks = dynamo_row["Items"][0]["desired_tasks"]["N"]
+        current_task_status = dynamo_row["Items"][0]["task_status"]["S"]
+
+        if current_desired_tasks == "0" or current_task_status == "STOPPED":
+            lambda_client.invoke(
+                FunctionName=env_startup_task_lambda_arn,
+                InvocationType='Event',
+                Payload=json.dumps({
+                    "service_uuid": service_uuid
+                })
+            )
 
     return {
         "statusCode": 302,

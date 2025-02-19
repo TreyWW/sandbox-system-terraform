@@ -105,7 +105,7 @@ def lambda_handler(event, context):
             }
         },
         UpdateExpression=(
-            "SET desired_tasks = :desired_tasks, updated_at = :updated_at, status = :task_status"
+            "SET desired_tasks = :desired_tasks, updated_at = :updated_at, task_status = :task_status"
             + (", next_shutdown_at = :next_shutdown_at" if not new_schedule else "")
         ),
         ExpressionAttributeValues={
