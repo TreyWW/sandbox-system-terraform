@@ -1,45 +1,29 @@
 # Lambda for creating initial service e.g. from github
 
+module "provision_sandbox_lambda" {
+  source = "./modules/lambda"
 
-resource "aws_security_group" "initial_service_lambda" {
-  name        = "${var.company_prefix}-initial-service-lambda"
-  description = "Security group for lambda function to create initial services"
-  vpc_id      = aws_vpc.main.id
-}
+  prefix = var.company_prefix
 
-resource "aws_vpc_security_group_egress_rule" "initial_service_lambda_egress_fcknat" {
-  security_group_id = aws_security_group.initial_service_lambda.id
+  lambda_name             = "provision-sandbox"
+  lambda_source_file_path = "lambdas/provision-sandbox/lambda_function.py"
+  lambda_output_file_path = "lambdas/provision-sandbox/lambda_function.zip"
 
-  referenced_security_group_id = aws_security_group.fck_nat_sg.id
+  lambda_runtime = "python3.9"
+  lambda_timeout = 20
 
-  ip_protocol = "-1"
-}
+  lambda_in_vpc = true
+  vpc_subnet_ids = [
+    aws_subnet.private_1a_with_nat.id,
+    aws_subnet.private_1b_with_nat.id,
+    aws_subnet.private_1c_with_nat.id
+  ]
 
-resource "aws_iam_role" "initial_service_lambda_execution_role" {
-  name = "${var.company_prefix}-initial-service-lambda-execution-role"
-
-  assume_role_policy = jsonencode({
+  lambda_role_execution_policy = jsonencode({
     "Version" : "2012-10-17",
     "Statement" : [
       {
-        "Effect" : "Allow",
-        "Principal" : {
-          "Service" : "lambda.amazonaws.com"
-        },
-        "Action" : "sts:AssumeRole"
-      }
-    ]
-  })
-}
-
-resource "aws_iam_policy" "initial_service_lambda_execution_role_policy" {
-  name = "${var.company_prefix}-initial-service-lambda-execution-role-policy"
-
-  policy = jsonencode({
-    "Version" : "2012-10-17",
-    "Statement" : [
-      {
-        "Sid": "EventBridgeScheduler",
+        "Sid" : "EventBridgeScheduler",
         "Effect" : "Allow",
         "Action" : [
           "scheduler:CreateSchedule"
@@ -47,7 +31,7 @@ resource "aws_iam_policy" "initial_service_lambda_execution_role_policy" {
         "Resource" : "arn:aws:scheduler:${var.region}:${local.account_id}:schedule/${aws_scheduler_schedule_group.default.name}/*"
       },
       {
-        "Sid": "ECS"
+        "Sid" : "ECS"
         "Effect" : "Allow",
         "Action" : [
           "ecs:CreateService",
@@ -61,7 +45,7 @@ resource "aws_iam_policy" "initial_service_lambda_execution_role_policy" {
         ]
       },
       {
-        "Sid": "CloudMap"
+        "Sid" : "CloudMap"
         "Effect" : "Allow",
         "Action" : [
           "servicediscovery:RegisterInstance",
@@ -74,7 +58,7 @@ resource "aws_iam_policy" "initial_service_lambda_execution_role_policy" {
         ]
       },
       {
-        "Sid": "CloudWatch",
+        "Sid" : "CloudWatch",
         "Effect" : "Allow",
         "Action" : [
           "events:PutRule",
@@ -88,7 +72,7 @@ resource "aws_iam_policy" "initial_service_lambda_execution_role_policy" {
         ]
       },
       {
-        "Sid": "DynamoDB",
+        "Sid" : "DynamoDB",
         "Effect" : "Allow",
         "Action" : [
           "dynamodb:PutItem",
@@ -115,10 +99,10 @@ resource "aws_iam_policy" "initial_service_lambda_execution_role_policy" {
         "Resource" : "*"
       },
       {
-        "Sid": "PassRoleECSTaskRoles",
-        "Effect": "Allow",
-        "Action": "iam:PassRole",
-        "Resource": [
+        "Sid" : "PassRoleECSTaskRoles",
+        "Effect" : "Allow",
+        "Action" : "iam:PassRole",
+        "Resource" : [
           aws_iam_role.ecs_task_role.arn,
           aws_iam_role.ecs_execution_role.arn,
           aws_iam_role.scheduler_role_invoke_shutdown_lambda.arn
@@ -126,118 +110,65 @@ resource "aws_iam_policy" "initial_service_lambda_execution_role_policy" {
       }
     ]
   })
-}
 
-resource "aws_iam_role_policy_attachment" "initial_service_lambda_execution_role_policy_attachment" {
-  role       = aws_iam_role.initial_service_lambda_execution_role.id
-  policy_arn = aws_iam_policy.initial_service_lambda_execution_role_policy.arn
-}
-
-resource "aws_lambda_layer_version" "initial_service_dependencies" {
-  filename   = "lambdas/initial-upload/python.zip"
-  layer_name = "${var.company_prefix}-initial-service-dependencies"
-
-  compatible_runtimes = ["python3.9"]
-}
-
-data "archive_file" "initial_service_lambda_code" {
-  type        = "zip"
-  source_file = "lambdas/initial-upload/lambda_function.py"
-  output_path = "lambdas/initial-upload/lambda_function.zip"
-}
-
-resource "aws_lambda_function" "initial_service_lambda" {
-  # code is in lambdas/initial-upload/lambda_function.py
-  filename      = "lambdas/initial-upload/lambda_function.zip"
-  source_code_hash = data.archive_file.initial_service_lambda_code.output_base64sha256
-  function_name = "${var.company_prefix}-initial-upload"
-
-  handler = "lambda_function.lambda_handler"
-  role    = aws_iam_role.initial_service_lambda_execution_role.arn
-  runtime = "python3.9"
-  timeout = 20
-
-  vpc_config {
-    security_group_ids = [
-      aws_security_group.initial_service_lambda.id
-    ]
-    subnet_ids = [
-      aws_subnet.private_1a_with_nat.id,
-      aws_subnet.private_1b_with_nat.id,
-      aws_subnet.private_1c_with_nat.id
-    ]
+  environment_variables = {
+    "company_prefix"            = var.company_prefix
+    "domain"                    = var.domain
+    "metadata_ddb_table"        = aws_dynamodb_table.metadata_table.name
+    "cloudmap_namespace_id"     = aws_service_discovery_http_namespace.main_api_namespace.id
+    "ecs_task_role_arn"         = aws_iam_role.ecs_task_role.arn
+    "ecs_execution_role_arn"    = aws_iam_role.ecs_execution_role.arn
+    "ecs_log_group_arn"         = aws_cloudwatch_log_group.ecs.name
+    "ecs_log_group_region"      = var.region,
+    "ecs_access_log_group_name" = aws_cloudwatch_log_group.ecs_access_logs.name
+    "ecs_cluster_arn"           = aws_ecs_cluster.main.arn
+    "ecs_subnets"               = "${aws_subnet.private_1a_with_nat.id},${aws_subnet.private_1b_with_nat.id},${aws_subnet.private_1c_with_nat.id}"
+    "ecs_security_groups"       = "${aws_security_group.ecs.id}"
+    "shutdown_lambda_arn"       = module.shutdown_sandbox_lambda.lambda_arn
+    "scheduler_role_arn"        = aws_iam_role.scheduler_role_invoke_shutdown_lambda.arn
+    "scheduler_group_name"      = aws_scheduler_schedule_group.default.name
   }
 
-  environment {
-    variables = {
-      "company_prefix"        = var.company_prefix
-      "domain"                = var.domain
-      "metadata_ddb_table"    = aws_dynamodb_table.metadata_table.name
-      "cloudmap_namespace_id" = aws_service_discovery_http_namespace.main_api_namespace.id
-      "ecs_task_role_arn" = aws_iam_role.ecs_task_role.arn
-      "ecs_execution_role_arn" = aws_iam_role.ecs_execution_role.arn
-      "ecs_log_group_arn"     = aws_cloudwatch_log_group.ecs.name
-      "ecs_log_group_region"  = var.region,
-      "ecs_access_log_group_name"   = aws_cloudwatch_log_group.ecs_access_logs.name
-      "ecs_cluster_arn"       = aws_ecs_cluster.main.arn
-      "ecs_subnets"           = "${aws_subnet.private_1a_with_nat.id},${aws_subnet.private_1b_with_nat.id},${aws_subnet.private_1c_with_nat.id}"
-      "ecs_security_groups"   = "${aws_security_group.ecs.id}"
-      "shutdown_lambda_arn" = aws_lambda_function.shutdown_instance_lambda.arn
-      "scheduler_role_arn"    = aws_iam_role.scheduler_role_invoke_shutdown_lambda.arn
-      "scheduler_group_name" = aws_scheduler_schedule_group.default.name
+  log_group_name = aws_cloudwatch_log_group.provision_sandbox_lambda.name
+
+  lambda_dependencies_zip_path = "lambdas/provision-sandbox/python.zip"
+
+  vpc_id = aws_vpc.main.id
+
+  security_group_description = "Security group for lambda function to create initial services"
+  sg_egress_rules = [
+    {
+      description                  = "Nat Instance"
+      from_port                    = -1
+      to_port                      = -1
+      protocol                     = "-1"
+      referenced_security_group_id = aws_security_group.fck_nat_sg.id
     }
-  }
-
-  logging_config {
-    log_group  = aws_cloudwatch_log_group.lambda_initial_create.name
-    log_format = "Text"
-  }
-
-  layers = [
-    aws_lambda_layer_version.initial_service_dependencies.arn
-  ]
-
-  depends_on = [
-    aws_iam_role_policy_attachment.initial_service_lambda_execution_role_policy_attachment,
-    aws_lambda_layer_version.initial_service_dependencies,
-    aws_iam_role.ecs_task_role,
-    aws_iam_role.ecs_execution_role,
-    aws_cloudwatch_log_group.ecs_access_logs,
-    aws_cloudwatch_log_group.lambda_initial_create,
-    aws_cloudwatch_log_group.ecs,
-    aws_dynamodb_table.metadata_table,
-    aws_ecs_cluster.main,
-    aws_vpc.main
   ]
 }
 
 /* Lambda for shutdown the instance */
 
-resource "aws_iam_role" "shutdown_instance_lambda_execution_role" {
-  name = "${var.company_prefix}-shutdown-instance-lambda-execution-role"
+module "shutdown_sandbox_lambda" {
+  source = "./modules/lambda"
 
-  assume_role_policy = jsonencode({
+  prefix = var.company_prefix
+
+  lambda_name             = "shutdown-sandbox"
+  lambda_source_file_path = "lambdas/shutdown-sandbox/lambda_function.py"
+  lambda_output_file_path = "lambdas/shutdown-sandbox/lambda_function.zip"
+  lambda_dependencies_zip_path = "lambdas/shutdown-sandbox/python.zip"
+
+  lambda_runtime = "python3.9"
+  lambda_timeout = 20
+
+  lambda_in_vpc = false
+
+  lambda_role_execution_policy = jsonencode({
     "Version" : "2012-10-17",
     "Statement" : [
       {
-        "Effect" : "Allow",
-        "Principal" : {
-          "Service" : "lambda.amazonaws.com"
-        },
-        "Action" : "sts:AssumeRole"
-      }
-    ]
-  })
-}
-
-resource "aws_iam_policy" "shutdown_instance_lambda_execution_role_policy" {
-  name = "${var.company_prefix}-shutdown-instance-lambda-execution-role-policy"
-
-  policy = jsonencode({
-    "Version" : "2012-10-17",
-    "Statement" : [
-      {
-        "Sid": "ECS"
+        "Sid" : "ECS"
         "Effect" : "Allow",
         "Action" : [
           "ecs:UpdateService",
@@ -248,7 +179,7 @@ resource "aws_iam_policy" "shutdown_instance_lambda_execution_role_policy" {
         ]
       },
       {
-        "Sid": "CloudWatch",
+        "Sid" : "CloudWatch",
         "Effect" : "Allow",
         "Action" : [
           "logs:FilterLogEvents",
@@ -262,7 +193,7 @@ resource "aws_iam_policy" "shutdown_instance_lambda_execution_role_policy" {
         ]
       },
       {
-        "Sid": "DynamoDB",
+        "Sid" : "DynamoDB",
         "Effect" : "Allow",
         "Action" : [
           "dynamodb:UpdateItem",
@@ -287,117 +218,61 @@ resource "aws_iam_policy" "shutdown_instance_lambda_execution_role_policy" {
         "Resource" : "*"
       },
       {
-        "Sid": "PassRoleECSTaskRoles",
-        "Effect": "Allow",
-        "Action": "iam:PassRole",
-        "Resource": [
+        "Sid" : "PassRoleECSTaskRoles",
+        "Effect" : "Allow",
+        "Action" : "iam:PassRole",
+        "Resource" : [
           aws_iam_role.ecs_task_role.arn,
           aws_iam_role.ecs_execution_role.arn,
           aws_iam_role.scheduler_role_invoke_shutdown_lambda.arn
         ]
       },
       {
-        "Sid": "EventBridgeGetSchedule",
-        "Effect": "Allow",
-        "Action": [
+        "Sid" : "EventBridgeGetSchedule",
+        "Effect" : "Allow",
+        "Action" : [
           "scheduler:GetSchedule",
           "scheduler:UpdateSchedule"
         ],
-        "Resource": "arn:aws:scheduler:${var.region}:${local.account_id}:schedule/${aws_scheduler_schedule_group.default.name}/*"
+        "Resource" : "arn:aws:scheduler:${var.region}:${local.account_id}:schedule/${aws_scheduler_schedule_group.default.name}/*"
       }
     ]
   })
-}
 
-resource "aws_iam_role_policy_attachment" "shutdown_instance_lambda_execution_role_policy_attachment" {
-  role       = aws_iam_role.shutdown_instance_lambda_execution_role.id
-  policy_arn = aws_iam_policy.shutdown_instance_lambda_execution_role_policy.arn
-}
-
-resource "aws_lambda_layer_version" "shutdown_instance_dependencies" {
-  filename   = "lambdas/shutdown-task/python.zip"
-  layer_name = "${var.company_prefix}-shutdown-instance-dependencies"
-
-  compatible_runtimes = ["python3.9"]
-}
-
-data "archive_file" "shutdown_instance_lambda_code" {
-  type        = "zip"
-  source_file = "lambdas/shutdown-task/lambda_function.py"
-  output_path = "lambdas/shutdown-task/lambda_function.zip"
-}
-
-resource "aws_lambda_function" "shutdown_instance_lambda" {
-  # code is in lambdas/initial-upload/lambda_function.py
-  filename      = "lambdas/shutdown-task/lambda_function.zip"
-  source_code_hash = data.archive_file.shutdown_instance_lambda_code.output_base64sha256
-  function_name = "${var.company_prefix}-shutdown-instance"
-
-  handler = "lambda_function.lambda_handler"
-  role    = aws_iam_role.shutdown_instance_lambda_execution_role.arn
-  runtime = "python3.9"
-  timeout = 20
-
-  environment {
-    variables = {
-      "company_prefix"        = var.company_prefix
-      "domain"                = var.domain
-      "metadata_ddb_table"    = aws_dynamodb_table.metadata_table.name
-      "ecs_cluster_arn"       = aws_ecs_cluster.main.arn,
+  environment_variables = {
+      "company_prefix"            = var.company_prefix
+      "domain"                    = var.domain
+      "metadata_ddb_table"        = aws_dynamodb_table.metadata_table.name
+      "ecs_cluster_arn"           = aws_ecs_cluster.main.arn,
       "ecs_access_log_group_name" = aws_cloudwatch_log_group.ecs_access_logs.name
-      "scheduler_group_name" = aws_scheduler_schedule_group.default.name
-    }
+      "scheduler_group_name"      = aws_scheduler_schedule_group.default.name
   }
 
-  logging_config {
-    log_group  = aws_cloudwatch_log_group.lambda_shutdown_instance.name
-    log_format = "Text"
-  }
-
-  layers = [
-    aws_lambda_layer_version.shutdown_instance_dependencies.arn
-  ]
-
-  depends_on = [
-    aws_iam_role_policy_attachment.shutdown_instance_lambda_execution_role_policy_attachment,
-    aws_lambda_layer_version.shutdown_instance_dependencies,
-    aws_iam_role.ecs_task_role,
-    aws_iam_role.ecs_execution_role,
-    aws_cloudwatch_log_group.lambda_shutdown_instance,
-    aws_cloudwatch_log_group.ecs,
-    aws_dynamodb_table.metadata_table,
-    aws_ecs_cluster.main,
-    aws_vpc.main
-  ]
+  log_group_name = aws_cloudwatch_log_group.shutdown_sandbox_lambda.name
 }
 
 /* Re-Startup Task */
 
-resource "aws_iam_role" "startup_task_lambda_execution_role" {
-  name = "${var.company_prefix}-startup-task-lambda-execution-role"
+module "restart_sandbox_lambda" {
+  source = "./modules/lambda"
 
-  assume_role_policy = jsonencode({
+  prefix = var.company_prefix
+
+  lambda_name             = "restart-sandbox"
+  lambda_source_file_path = "lambdas/restart-sandbox/lambda_function.py"
+  lambda_output_file_path = "lambdas/restart-sandbox/lambda_function.zip"
+  lambda_dependencies_zip_path = "lambdas/restart-sandbox/python.zip"
+
+  lambda_runtime = "python3.10"
+  lambda_timeout = 10
+
+  lambda_in_vpc = false
+
+  lambda_role_execution_policy = jsonencode({
     "Version" : "2012-10-17",
     "Statement" : [
       {
-        "Effect" : "Allow",
-        "Principal" : {
-          "Service" : "lambda.amazonaws.com"
-        },
-        "Action" : "sts:AssumeRole"
-      }
-    ]
-  })
-}
-
-resource "aws_iam_policy" "startup_task_lambda_execution_role_policy" {
-  name = "${var.company_prefix}-startup-task-lambda-execution-role-policy"
-
-  policy = jsonencode({
-    "Version" : "2012-10-17",
-    "Statement" : [
-      {
-        "Sid": "ECS"
+        "Sid" : "ECS"
         "Effect" : "Allow",
         "Action" : [
           "ecs:UpdateService",
@@ -408,7 +283,7 @@ resource "aws_iam_policy" "startup_task_lambda_execution_role_policy" {
         ]
       },
       {
-        "Sid": "DynamoDB",
+        "Sid" : "DynamoDB",
         "Effect" : "Allow",
         "Action" : [
           "dynamodb:UpdateItem",
@@ -417,10 +292,10 @@ resource "aws_iam_policy" "startup_task_lambda_execution_role_policy" {
         "Resource" : "arn:aws:dynamodb:${var.region}:${local.account_id}:table/${aws_dynamodb_table.metadata_table.name}"
       },
       {
-        "Sid": "PassRoleECSTaskRoles",
-        "Effect": "Allow",
-        "Action": "iam:PassRole",
-        "Resource": [
+        "Sid" : "PassRoleECSTaskRoles",
+        "Effect" : "Allow",
+        "Action" : "iam:PassRole",
+        "Resource" : [
           aws_iam_role.ecs_task_role.arn,
           aws_iam_role.ecs_execution_role.arn,
           aws_iam_role.scheduler_role_invoke_shutdown_lambda.arn
@@ -435,112 +310,57 @@ resource "aws_iam_policy" "startup_task_lambda_execution_role_policy" {
           "logs:PutLogEvents"
         ],
         "Resource" : [
-          aws_cloudwatch_log_group.lambda_startup_task.arn,
-          "${aws_cloudwatch_log_group.lambda_startup_task.arn}:log-stream:*"
+          aws_cloudwatch_log_group.restart_sandbox_lambda.arn,
+          "${aws_cloudwatch_log_group.restart_sandbox_lambda.arn}:log-stream:*"
         ]
       },
       {
-        "Sid": "EventBridgeGetSchedule",
-        "Effect": "Allow",
-        "Action": [
+        "Sid" : "EventBridgeGetSchedule",
+        "Effect" : "Allow",
+        "Action" : [
           "scheduler:GetSchedule",
           "scheduler:UpdateSchedule"
         ],
-        "Resource": "arn:aws:scheduler:${var.region}:${local.account_id}:schedule/${aws_scheduler_schedule_group.default.name}/*"
+        "Resource" : "arn:aws:scheduler:${var.region}:${local.account_id}:schedule/${aws_scheduler_schedule_group.default.name}/*"
       }
     ]
   })
-}
 
-resource "aws_iam_role_policy_attachment" "startup_task_lambda_execution_role_policy_attachment" {
-  role       = aws_iam_role.startup_task_lambda_execution_role.id
-  policy_arn = aws_iam_policy.startup_task_lambda_execution_role_policy.arn
-}
-
-resource "aws_lambda_layer_version" "startup_task_dependencies" {
-  filename   = "lambdas/startup-task/python.zip"
-  layer_name = "${var.company_prefix}-startup-task-dependencies"
-
-  compatible_runtimes = ["python3.10"]
-}
-
-data "archive_file" "startup_task_lambda_code" {
-  type        = "zip"
-  source_file = "lambdas/startup-task/lambda_function.py"
-  output_path = "lambdas/startup-task/lambda_function.zip"
-}
-
-resource "aws_lambda_function" "startup_task_lambda" {
-  # code is in lambdas/initial-upload/lambda_function.py
-  filename      = "lambdas/startup-task/lambda_function.zip"
-  source_code_hash = data.archive_file.startup_task_lambda_code.output_base64sha256
-  function_name = "${var.company_prefix}-startup-task"
-
-  handler = "lambda_function.lambda_handler"
-  role    = aws_iam_role.startup_task_lambda_execution_role.arn
-  runtime = "python3.10"
-  timeout = 10
-
-  environment {
-    variables = {
-      "company_prefix"        = var.company_prefix
-      "domain"                = var.domain
-      "metadata_ddb_table"    = aws_dynamodb_table.metadata_table.name
-      "ecs_cluster_arn"       = aws_ecs_cluster.main.arn,
+  environment_variables = {
+      "company_prefix"            = var.company_prefix
+      "domain"                    = var.domain
+      "metadata_ddb_table"        = aws_dynamodb_table.metadata_table.name
+      "ecs_cluster_arn"           = aws_ecs_cluster.main.arn,
       "ecs_access_log_group_name" = aws_cloudwatch_log_group.ecs_access_logs.name
-      "scheduler_group_name" = aws_scheduler_schedule_group.default.name
-    }
+      "scheduler_group_name"      = aws_scheduler_schedule_group.default.name
   }
 
-  logging_config {
-    log_group  = aws_cloudwatch_log_group.lambda_startup_task.name
-    log_format = "Text"
-  }
-
-  layers = [
-    aws_lambda_layer_version.startup_task_dependencies.arn
-  ]
-
-  depends_on = [
-    aws_iam_role_policy_attachment.startup_task_lambda_execution_role_policy_attachment,
-    aws_lambda_layer_version.startup_task_dependencies,
-    aws_iam_role.ecs_task_role,
-    aws_iam_role.ecs_execution_role,
-    aws_cloudwatch_log_group.lambda_startup_task,
-    aws_cloudwatch_log_group.ecs,
-    aws_dynamodb_table.metadata_table,
-    aws_ecs_cluster.main,
-  ]
+  log_group_name = aws_cloudwatch_log_group.restart_sandbox_lambda.name
 }
-
 
 /* Lambda for managing the instance */
 
-resource "aws_iam_role" "manage_instance_lambda_execution_role" {
-  name = "${var.company_prefix}-manage-instance-lambda-execution-role"
 
-  assume_role_policy = jsonencode({
+module "monitor_sandbox_lambda" {
+  source = "./modules/lambda"
+
+  prefix = var.company_prefix
+
+  lambda_name             = "monitor-sandbox"
+  lambda_source_file_path = "lambdas/monitor-sandbox/lambda_function.py"
+  lambda_output_file_path = "lambdas/monitor-sandbox/lambda_function.zip"
+  lambda_dependencies_zip_path = "lambdas/monitor-sandbox/python.zip"
+
+  lambda_runtime = "python3.9"
+  lambda_timeout = 20
+
+  lambda_in_vpc = false
+
+  lambda_role_execution_policy = jsonencode({
     "Version" : "2012-10-17",
     "Statement" : [
       {
-        "Effect" : "Allow",
-        "Principal" : {
-          "Service" : "lambda.amazonaws.com"
-        },
-        "Action" : "sts:AssumeRole"
-      }
-    ]
-  })
-}
-
-resource "aws_iam_policy" "manage_instance_lambda_execution_role_policy" {
-  name = "${var.company_prefix}-manage-instance-lambda-execution-role-policy"
-
-  policy = jsonencode({
-    "Version" : "2012-10-17",
-    "Statement" : [
-      {
-        "Sid": "ECS"
+        "Sid" : "ECS",
         "Effect" : "Allow",
         "Action" : [
           "ecs:UpdateService",
@@ -551,7 +371,7 @@ resource "aws_iam_policy" "manage_instance_lambda_execution_role_policy" {
         ]
       },
       {
-        "Sid": "CloudWatch",
+        "Sid" : "CloudWatch",
         "Effect" : "Allow",
         "Action" : [
           "logs:FilterLogEvents",
@@ -565,7 +385,7 @@ resource "aws_iam_policy" "manage_instance_lambda_execution_role_policy" {
         ]
       },
       {
-        "Sid": "DynamoDB",
+        "Sid" : "DynamoDB",
         "Effect" : "Allow",
         "Action" : [
           "dynamodb:UpdateItem",
@@ -590,88 +410,37 @@ resource "aws_iam_policy" "manage_instance_lambda_execution_role_policy" {
         "Resource" : "*"
       },
       {
-        "Sid": "PassRoleECSTaskRoles",
-        "Effect": "Allow",
-        "Action": "iam:PassRole",
-        "Resource": [
+        "Sid" : "PassRoleECSTaskRoles",
+        "Effect" : "Allow",
+        "Action" : "iam:PassRole",
+        "Resource" : [
           aws_iam_role.ecs_task_role.arn,
           aws_iam_role.ecs_execution_role.arn,
           aws_iam_role.scheduler_role_invoke_shutdown_lambda.arn
         ]
       },
       {
-        "Sid": "EventBridgeGetSchedule",
-        "Effect": "Allow",
-        "Action": [
+        "Sid" : "EventBridgeGetSchedule",
+        "Effect" : "Allow",
+        "Action" : [
           "scheduler:GetSchedule",
           "scheduler:UpdateSchedule"
         ],
-        "Resource": "arn:aws:scheduler:${var.region}:${local.account_id}:schedule/${aws_scheduler_schedule_group.default.name}/*"
+        "Resource" : "arn:aws:scheduler:${var.region}:${local.account_id}:schedule/${aws_scheduler_schedule_group.default.name}/*"
       }
     ]
   })
-}
 
-resource "aws_iam_role_policy_attachment" "manage_instance_lambda_execution_role_policy_attachment" {
-  role       = aws_iam_role.manage_instance_lambda_execution_role.id
-  policy_arn = aws_iam_policy.manage_instance_lambda_execution_role_policy.arn
-}
-
-resource "aws_lambda_layer_version" "manage_instance_dependencies" {
-  filename   = "lambdas/shutdown-task/python.zip"
-  layer_name = "${var.company_prefix}-manage-instance-dependencies"
-
-  compatible_runtimes = ["python3.9"]
-}
-
-data "archive_file" "manage_instance_lambda_code" {
-  type        = "zip"
-  source_file = "lambdas/manage-instance/lambda_function.py"
-  output_path = "lambdas/manage-instance/lambda_function.zip"
-}
-
-resource "aws_lambda_function" "manage_instance_lambda" {
-  # code is in lambdas/initial-upload/lambda_function.py
-  filename      = "lambdas/manage-instance/lambda_function.zip"
-  source_code_hash = data.archive_file.manage_instance_lambda_code.output_base64sha256
-  function_name = "${var.company_prefix}-manage-instance"
-
-  handler = "lambda_function.lambda_handler"
-  role    = aws_iam_role.manage_instance_lambda_execution_role.arn
-  runtime = "python3.9"
-  timeout = 20
-
-  environment {
-    variables = {
-      "company_prefix"        = var.company_prefix
-      "domain"                = var.domain
-      "metadata_ddb_table"    = aws_dynamodb_table.metadata_table.name
-      "ecs_cluster_arn"       = aws_ecs_cluster.main.arn,
+  environment_variables = {
+      "company_prefix"            = var.company_prefix
+      "domain"                    = var.domain
+      "metadata_ddb_table"        = aws_dynamodb_table.metadata_table.name
+      "ecs_cluster_arn"           = aws_ecs_cluster.main.arn,
       "ecs_access_log_group_name" = aws_cloudwatch_log_group.ecs_access_logs.name
-      "scheduler_group_name" = aws_scheduler_schedule_group.default.name
+      "scheduler_group_name"      = aws_scheduler_schedule_group.default.name
     }
-  }
 
-  logging_config {
-    log_group  = aws_cloudwatch_log_group.lambda_shutdown_instance.name
-    log_format = "Text"
-  }
-
-  layers = [
-    aws_lambda_layer_version.manage_instance_dependencies.arn
-  ]
-
-  depends_on = [
-    aws_iam_role_policy_attachment.manage_instance_lambda_execution_role_policy_attachment,
-    aws_lambda_layer_version.manage_instance_dependencies,
-    aws_iam_role.ecs_task_role,
-    aws_iam_role.ecs_execution_role,
-    aws_cloudwatch_log_group.lambda_shutdown_instance,
-    aws_cloudwatch_log_group.ecs,
-    aws_dynamodb_table.metadata_table,
-    aws_ecs_cluster.main,
-    aws_vpc.main
-  ]
+  log_group_name = aws_cloudwatch_log_group.monitor_sandbox_lambda.name
 }
 
 # attach layer
@@ -679,7 +448,7 @@ resource "aws_lambda_function" "manage_instance_lambda" {
 
 
 
-# Lambda proxy normal requests to their respective ECS service
+# Lambda proxy-request normal requests to their respective ECS service
 
 resource "aws_security_group" "lambda_proxy" {
   name        = "${var.company_prefix}-lambda-proxy"
@@ -790,10 +559,10 @@ resource "aws_iam_policy" "lambda_proxy_execution_role_policy" {
         "Resource" : "*"
       },
       {
-        "Sid": "InvokeStartupLambda",
-        "Effect": "Allow",
-        "Action": "lambda:InvokeFunction",
-        "Resource": aws_lambda_function.startup_task_lambda.arn
+        "Sid" : "InvokeStartupLambda",
+        "Effect" : "Allow",
+        "Action" : "lambda:InvokeFunction",
+        "Resource" : module.restart_sandbox_lambda.lambda_arn
       }
     ]
   })
@@ -813,15 +582,15 @@ resource "aws_lambda_layer_version" "lambda_proxy_dependencies" {
 
 data "archive_file" "proxy_lambda_code" {
   type        = "zip"
-  source_file = "lambdas/proxy/lambda_function.py"
-  output_path = "lambdas/proxy/lambda_function.zip"
+  source_file = "lambdas/proxy-request/lambda_function.py"
+  output_path = "lambdas/proxy-request/lambda_function.zip"
 }
 
 resource "aws_lambda_function" "lambda_proxy" {
-  # code is in lambdas/lambda-proxy/lambda_function.py
-  filename      = "lambdas/proxy/lambda_function.zip"
+  # code is in lambdas/lambda-proxy-request/lambda_function.py
+  filename         = "lambdas/proxy-request/lambda_function.zip"
   source_code_hash = data.archive_file.proxy_lambda_code.output_base64sha256
-  function_name = "${var.company_prefix}-lambda-proxy"
+  function_name    = "${var.company_prefix}-lambda-proxy"
 
   handler = "lambda_function.lambda_handler"
   role    = aws_iam_role.lambda_proxy_execution_role.arn
@@ -841,16 +610,16 @@ resource "aws_lambda_function" "lambda_proxy" {
 
   environment {
     variables = {
-      "cloudmap_namespace" = aws_service_discovery_http_namespace.main_api_namespace.name
+      "cloudmap_namespace"        = aws_service_discovery_http_namespace.main_api_namespace.name
       "ecs_access_log_group_name" = aws_cloudwatch_log_group.ecs_access_logs.name
-      "metadata_ddb_table_name" = aws_dynamodb_table.metadata_table.name
-      "full_domain" = var.domain
-      "startup_task_lambda_arn" = aws_lambda_function.startup_task_lambda.arn
+      "metadata_ddb_table_name"   = aws_dynamodb_table.metadata_table.name
+      "full_domain"               = var.domain
+      "startup_task_lambda_arn"   = module.restart_sandbox_lambda.lambda_arn
     }
   }
 
   logging_config {
-    log_group  = aws_cloudwatch_log_group.lambda_proxy.name
+    log_group  = aws_cloudwatch_log_group.proxy_request_lambda.name
     log_format = "Text"
   }
 
@@ -862,7 +631,7 @@ resource "aws_lambda_function" "lambda_proxy" {
     aws_iam_role_policy_attachment.lambda_proxy_execution_role_policy_attachment,
     aws_cloudwatch_log_group.ecs_access_logs,
     aws_lambda_layer_version.lambda_proxy_dependencies,
-    aws_cloudwatch_log_group.lambda_proxy,
+    aws_cloudwatch_log_group.proxy_request_lambda,
     aws_dynamodb_table.metadata_table,
     aws_ecs_cluster.main,
     aws_vpc.main

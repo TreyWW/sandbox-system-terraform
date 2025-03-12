@@ -55,7 +55,7 @@ variable "vpc_id" {
 variable "lambda_role_execution_policy" {
   description = "The IAM policy for the lambda function"
   type        = any
-  default = jsonencode({})
+  default = {}
 }
 
 variable "lambda_source_file_path" {
@@ -112,6 +112,12 @@ variable "vpc_security_group_ids" {
   default = []
 }
 
+variable "security_group_description" {
+  description = "The description of the security group"
+  type        = string
+  default     = ""
+}
+
 variable "sg_ingress_rules" {
   description = "Ingress rules for the lambda function"
   type = list(
@@ -120,8 +126,8 @@ variable "sg_ingress_rules" {
       from_port   = number
       to_port     = number
       protocol    = string
-      cidr_blocks = list(string)
-      referenced_security_group_ids = list(string)
+      cidr_ipv4 = optional(string)
+      referenced_security_group_id = string
     })
   )
   default = []
@@ -135,8 +141,8 @@ variable "sg_egress_rules" {
       from_port   = number
       to_port     = number
       protocol    = string
-      cidr_blocks = list(string)
-      referenced_security_group_ids = list(string)
+      cidr_ipv4 = optional(string)
+      referenced_security_group_id = string
     })
   )
   default = []

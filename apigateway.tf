@@ -42,7 +42,7 @@ resource "aws_api_gateway_integration" "create_infrastructure_integration" {
   http_method             = aws_api_gateway_method.create_infrastructure_method.http_method
   integration_http_method = "POST"
   type                    = "AWS_PROXY"
-  uri                     = aws_lambda_function.initial_service_lambda.invoke_arn
+  uri                     = module.provision_sandbox_lambda.lambda_invoke_arn
 }
 
 resource "aws_api_gateway_deployment" "create_infrastructure_deployment" {
@@ -107,7 +107,7 @@ resource "aws_api_gateway_integration" "manage_instance_integration" {
   http_method             = aws_api_gateway_method.manage_instance_method.http_method
   integration_http_method = "POST"
   type                    = "AWS_PROXY"
-  uri                     = aws_lambda_function.manage_instance_lambda.invoke_arn
+  uri                     = module.monitor_sandbox_lambda.lambda_invoke_arn
 }
 
 resource "aws_api_gateway_deployment" "manage_instance_deployment" {
@@ -152,7 +152,7 @@ resource "aws_api_gateway_stage" "manage_instance_stage" {
   }
 }
 
-/* Normal request to proxy to users instance api gateway */
+/* Normal request to proxy-request to users instance api gateway */
 
 resource "aws_iam_role" "api_gateway_execution_role_lambda_proxy" {
   name = "${var.company_prefix}-apigw-lambda-proxy-execution-role"

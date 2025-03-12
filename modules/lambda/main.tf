@@ -1,26 +1,28 @@
 resource "aws_security_group" "lambda_sg" {
-  name        = "${var.prefix}-${var.lambda_name}-lambda-sg"
-  description = "Security group for ${var.lambda_name} lambda"
+  count = var.lambda_in_vpc == true ? 1 : 0
+  name        = "${var.prefix}-${var.lambda_name}-lambda"
+  description = length(var.security_group_description) > 0 ? var.security_group_description : "Security group for ${var
+  .lambda_name} lambda"
   vpc_id      = var.vpc_id
 }
 
 resource "aws_vpc_security_group_ingress_rule" "ingress" {
   count = length(var.sg_ingress_rules)
-  security_group_id = aws_security_group.lambda_sg.id
+  security_group_id = aws_security_group.lambda_sg[0].id
   referenced_security_group_id = var.sg_ingress_rules[count.index].referenced_security_group_id
-  cidr_ipv4   = var.sg_ingress_rules[count.index].cidr_blocks
-  from_port   = var.sg_ingress_rules[count.index].port
-  to_port     = var.sg_ingress_rules[count.index].port
+  cidr_ipv4   = var.sg_ingress_rules[count.index].cidr_ipv4
+  from_port   = var.sg_ingress_rules[count.index].to_port
+  to_port     = var.sg_ingress_rules[count.index].from_port
   ip_protocol = var.sg_ingress_rules[count.index].protocol
 }
 
 resource "aws_vpc_security_group_egress_rule" "egress" {
   count = length(var.sg_egress_rules)
-  security_group_id = aws_security_group.lambda_sg.id
+  security_group_id = aws_security_group.lambda_sg[0].id
   referenced_security_group_id = var.sg_egress_rules[count.index].referenced_security_group_id
-  cidr_ipv4   = var.sg_egress_rules[count.index].cidr_blocks
-  from_port   = var.sg_egress_rules[count.index].port
-  to_port     = var.sg_egress_rules[count.index].port
+  cidr_ipv4   = var.sg_egress_rules[count.index].cidr_ipv4
+  from_port   = var.sg_egress_rules[count.index].to_port
+  to_port     = var.sg_egress_rules[count.index].from_port
   ip_protocol = var.sg_egress_rules[count.index].protocol
 }
 
@@ -54,7 +56,7 @@ resource "aws_iam_role_policy_attachment" "execution_role_policy_attachment" {
 
 resource "aws_lambda_layer_version" "dependencies" {
   filename   = var.lambda_dependencies_zip_path
-  layer_name = "${var.lambda_name}-dependencies"
+  layer_name = "${var.prefix}-${var.lambda_name}-dependencies"
 
   compatible_runtimes = [var.lambda_runtime]
 }
@@ -76,10 +78,13 @@ resource "aws_lambda_function" "lambda" {
   timeout = var.lambda_timeout
 
 
-  # concat lambda_sg id with vpc_security_group_ids
-  vpc_config {
-    security_group_ids = var.lambda_in_vpc ? [aws_security_group.lambda_sg.id] : null
-    subnet_ids = var.vpc_subnet_ids  ? var.vpc_subnet_ids : null
+  dynamic "vpc_config" {
+    for_each = var.lambda_in_vpc ? [1] : []
+
+    content {
+      security_group_ids = [aws_security_group.lambda_sg[0].id]
+      subnet_ids         = var.vpc_subnet_ids
+    }
   }
 
   environment {
@@ -94,11 +99,10 @@ resource "aws_lambda_function" "lambda" {
   layers = [
     aws_lambda_layer_version.dependencies.arn
   ]
-
-  depends_on = var.lambda_depends_on
 }
 
 resource "aws_lambda_permission" "apigw_perm" {
+  count = var.lambda_apigateway_source_arn != "" ? 1 : 0
   statement_id  = "AllowExecutionFromAPIGateway"
   action        = "lambda:InvokeFunction"
   function_name = aws_lambda_function.lambda.function_name

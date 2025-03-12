@@ -30,8 +30,8 @@ resource "aws_iam_policy" "scheduler_role_invoke_shutdown_lambda" {
         ]
         Effect   = "Allow"
         Resource = [
-          aws_lambda_function.shutdown_instance_lambda.arn,
-          "${aws_lambda_function.shutdown_instance_lambda.arn}:*"
+          module.shutdown_sandbox_lambda.lambda_arn,
+          "${module.shutdown_sandbox_lambda.lambda_arn}:*"
         ]
       }
     ]
