@@ -184,7 +184,7 @@ resource "aws_iam_policy" "api_gateway_execution_role_lambda_proxy_policy" {
           "lambda:InvokeFunction"
         ],
         "Resource" : [
-          aws_lambda_function.lambda_proxy.arn
+          module.proxy_request_lambda.lambda_arn
         ]
       }
     ]
@@ -223,7 +223,7 @@ resource "aws_api_gateway_integration" "user_service_integration" {
   http_method             = aws_api_gateway_method.user_service_method.http_method
   integration_http_method = "POST"
   type                    = "AWS_PROXY"
-  uri                     = aws_lambda_function.lambda_proxy.invoke_arn
+  uri                     =  module.proxy_request_lambda.lambda_invoke_arn
 }
 
 resource "aws_api_gateway_integration" "proxy_integration" {
@@ -232,7 +232,7 @@ resource "aws_api_gateway_integration" "proxy_integration" {
   http_method             = aws_api_gateway_method.proxy_method.http_method
   integration_http_method = "POST"
   type                    = "AWS_PROXY"
-  uri                     = aws_lambda_function.lambda_proxy.invoke_arn
+  uri                     =  module.proxy_request_lambda.lambda_invoke_arn
 }
 
 resource "aws_api_gateway_deployment" "user_service_deployment" {

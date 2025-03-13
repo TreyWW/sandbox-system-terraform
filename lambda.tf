@@ -450,61 +450,50 @@ module "monitor_sandbox_lambda" {
 
 # Lambda proxy-request normal requests to their respective ECS service
 
-resource "aws_security_group" "lambda_proxy" {
-  name        = "${var.company_prefix}-lambda-proxy"
-  description = "Security group for lambda proxy"
-  vpc_id      = aws_vpc.main.id
-}
+module "proxy_request_lambda" {
+  source = "./modules/lambda"
 
-resource "aws_vpc_security_group_egress_rule" "lambda_proxy_egress_ecs_80" {
-  security_group_id = aws_security_group.lambda_proxy.id
+  prefix = var.company_prefix
 
-  referenced_security_group_id = aws_security_group.ecs.id
+  lambda_name             = "proxy-request"
+  lambda_source_file_path = "lambdas/proxy-request/lambda_function.py"
+  lambda_output_file_path = "lambdas/proxy-request/lambda_function.zip"
+  lambda_dependencies_zip_path = "lambdas/proxy-request/python.zip"
 
-  from_port   = 80
-  to_port     = 80
-  ip_protocol = "tcp"
-}
+  lambda_runtime = "python3.10"
+  lambda_timeout = 20
 
-resource "aws_vpc_security_group_egress_rule" "lambda_proxy_egress_ecs_443" {
-  security_group_id = aws_security_group.lambda_proxy.id
-
-  referenced_security_group_id = aws_security_group.ecs.id
-
-  from_port   = 443
-  to_port     = 443
-  ip_protocol = "tcp"
-}
-
-resource "aws_vpc_security_group_egress_rule" "lambda_proxy_egress_fcknat" {
-  security_group_id = aws_security_group.lambda_proxy.id
-
-  referenced_security_group_id = aws_security_group.fck_nat_sg.id
-
-  ip_protocol = "-1"
-}
-
-resource "aws_iam_role" "lambda_proxy_execution_role" {
-  name = "${var.company_prefix}-lambda-proxy-execution-role"
-
-  assume_role_policy = jsonencode({
-    "Version" : "2012-10-17",
-    "Statement" : [
-      {
-        "Effect" : "Allow",
-        "Principal" : {
-          "Service" : "lambda.amazonaws.com"
-        },
-        "Action" : "sts:AssumeRole"
-      }
+  lambda_in_vpc = true
+  vpc_id = aws_vpc.main.id
+  vpc_subnet_ids = [
+      aws_subnet.private_1a_with_nat.id,
+      aws_subnet.private_1b_with_nat.id,
+      aws_subnet.private_1c_with_nat.id
     ]
-  })
-}
 
-resource "aws_iam_policy" "lambda_proxy_execution_role_policy" {
-  name = "${var.company_prefix}-lambda-proxy-execution-role-policy"
+  sg_egress_rules = [
+    {
+      description = "Allow outbound traffic to ECS Tasks"
+      from_port = 80
+      to_port = 80
+      protocol = "tcp"
+      referenced_security_group_id = aws_security_group.ecs.id
+    },
+    {
+      description = "Allow outbound traffic to ECS Tasks"
+      from_port = 443
+      to_port = 443
+      protocol = "tcp"
+      referenced_security_group_id = aws_security_group.ecs.id
+    },
+    {
+      description = "Allow outbound traffic to NAT Instance"
+      protocol = "-1"
+      referenced_security_group_id = aws_security_group.fck_nat_sg.id
+    }
+  ]
 
-  policy = jsonencode({
+  lambda_role_execution_policy = jsonencode({
     "Version" : "2012-10-17",
     "Statement" : [
       {
@@ -566,82 +555,22 @@ resource "aws_iam_policy" "lambda_proxy_execution_role_policy" {
       }
     ]
   })
-}
 
-resource "aws_iam_role_policy_attachment" "lambda_proxy_execution_role_policy_attachment" {
-  role       = aws_iam_role.lambda_proxy_execution_role.id
-  policy_arn = aws_iam_policy.lambda_proxy_execution_role_policy.arn
-}
-
-resource "aws_lambda_layer_version" "lambda_proxy_dependencies" {
-  filename   = "lambdas/proxy/python.zip"
-  layer_name = "${var.company_prefix}-lambda-proxy-dependencies"
-
-  compatible_runtimes = ["python3.9"]
-}
-
-data "archive_file" "proxy_lambda_code" {
-  type        = "zip"
-  source_file = "lambdas/proxy-request/lambda_function.py"
-  output_path = "lambdas/proxy-request/lambda_function.zip"
-}
-
-resource "aws_lambda_function" "lambda_proxy" {
-  # code is in lambdas/lambda-proxy-request/lambda_function.py
-  filename         = "lambdas/proxy-request/lambda_function.zip"
-  source_code_hash = data.archive_file.proxy_lambda_code.output_base64sha256
-  function_name    = "${var.company_prefix}-lambda-proxy"
-
-  handler = "lambda_function.lambda_handler"
-  role    = aws_iam_role.lambda_proxy_execution_role.arn
-  runtime = "python3.10"
-  timeout = 20
-
-  vpc_config {
-    security_group_ids = [
-      aws_security_group.lambda_proxy.id
-    ]
-    subnet_ids = [
-      aws_subnet.private_1a_with_nat.id,
-      aws_subnet.private_1b_with_nat.id,
-      aws_subnet.private_1c_with_nat.id
-    ]
-  }
-
-  environment {
-    variables = {
+  environment_variables = {
       "cloudmap_namespace"        = aws_service_discovery_http_namespace.main_api_namespace.name
       "ecs_access_log_group_name" = aws_cloudwatch_log_group.ecs_access_logs.name
       "metadata_ddb_table_name"   = aws_dynamodb_table.metadata_table.name
       "full_domain"               = var.domain
       "startup_task_lambda_arn"   = module.restart_sandbox_lambda.lambda_arn
     }
-  }
 
-  logging_config {
-    log_group  = aws_cloudwatch_log_group.proxy_request_lambda.name
-    log_format = "Text"
-  }
-
-  layers = [
-    aws_lambda_layer_version.lambda_proxy_dependencies.arn
-  ]
-
-  depends_on = [
-    aws_iam_role_policy_attachment.lambda_proxy_execution_role_policy_attachment,
-    aws_cloudwatch_log_group.ecs_access_logs,
-    aws_lambda_layer_version.lambda_proxy_dependencies,
-    aws_cloudwatch_log_group.proxy_request_lambda,
-    aws_dynamodb_table.metadata_table,
-    aws_ecs_cluster.main,
-    aws_vpc.main
-  ]
+  log_group_name = aws_cloudwatch_log_group.proxy_request_lambda.name
 }
 
 resource "aws_lambda_permission" "lambda_proxy_apigw_perm" {
   statement_id  = "AllowExecutionFromAPIGateway"
   action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.lambda_proxy.function_name
+  function_name = module.proxy_request_lambda.lambda_function_name
   principal     = "apigateway.amazonaws.com"
   source_arn    = "${aws_api_gateway_rest_api.user_service_endpoint.execution_arn}/*/*"
 }

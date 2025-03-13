@@ -50,6 +50,11 @@ variable "vpc_id" {
   description = "The id of the VPC the lambda function will be deployed to"
   type        = string
   default     = ""
+
+  validation {
+    condition     = var.lambda_in_vpc == false || (var.lambda_in_vpc == true && var.vpc_id != "")
+    error_message = "If 'lambda_in_vpc' is set to true, you must specify a 'vpc_id'."
+  }
 }
 
 variable "lambda_role_execution_policy" {
@@ -122,10 +127,10 @@ variable "sg_ingress_rules" {
   description = "Ingress rules for the lambda function"
   type = list(
     object({
-      description = string
-      from_port   = number
-      to_port     = number
-      protocol    = string
+      description = optional(string)
+      from_port                    = number
+      to_port                      = number
+      protocol                     = string
       cidr_ipv4 = optional(string)
       referenced_security_group_id = string
     })
@@ -137,10 +142,10 @@ variable "sg_egress_rules" {
   description = "Egress rules for the lambda function"
   type = list(
     object({
-      description = string
-      from_port   = number
-      to_port     = number
-      protocol    = string
+      description = optional(string)
+      from_port = optional(number)
+      to_port = optional(number)
+      protocol = optional(string)
       cidr_ipv4 = optional(string)
       referenced_security_group_id = string
     })

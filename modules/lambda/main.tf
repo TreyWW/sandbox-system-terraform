@@ -8,6 +8,7 @@ resource "aws_security_group" "lambda_sg" {
 
 resource "aws_vpc_security_group_ingress_rule" "ingress" {
   count = length(var.sg_ingress_rules)
+  description = var.sg_ingress_rules[count.index].description
   security_group_id = aws_security_group.lambda_sg[0].id
   referenced_security_group_id = var.sg_ingress_rules[count.index].referenced_security_group_id
   cidr_ipv4   = var.sg_ingress_rules[count.index].cidr_ipv4
@@ -18,6 +19,7 @@ resource "aws_vpc_security_group_ingress_rule" "ingress" {
 
 resource "aws_vpc_security_group_egress_rule" "egress" {
   count = length(var.sg_egress_rules)
+  description = var.sg_egress_rules[count.index].description
   security_group_id = aws_security_group.lambda_sg[0].id
   referenced_security_group_id = var.sg_egress_rules[count.index].referenced_security_group_id
   cidr_ipv4   = var.sg_egress_rules[count.index].cidr_ipv4
