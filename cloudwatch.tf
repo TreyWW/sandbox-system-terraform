@@ -7,7 +7,7 @@ resource "aws_cloudwatch_log_group" "proxy_request_lambda" {
 }
 
 resource "aws_cloudwatch_log_group" "provision_sandbox_lambda" {
-  name = "/${var.company_prefix}-sandbox/lambda/privsion-sandbox/"
+  name = "/${var.company_prefix}-sandbox/lambda/provision-sandbox/"
 }
 
 resource "aws_cloudwatch_log_group" "shutdown_sandbox_lambda" {
@@ -16,6 +16,10 @@ resource "aws_cloudwatch_log_group" "shutdown_sandbox_lambda" {
 
 resource "aws_cloudwatch_log_group" "restart_sandbox_lambda" {
   name = "/${var.company_prefix}-sandbox/lambda/restart-sandbox/"
+}
+
+resource "aws_cloudwatch_log_group" "restart_sandbox_sfn" {
+  name = "/${var.company_prefix}-sandbox/sfn/restart-sandbox/"
 }
 
 resource "aws_cloudwatch_log_group" "monitor_sandbox_lambda" {
@@ -29,3 +33,5 @@ resource "aws_cloudwatch_log_group" "api_gateway" {
 resource "aws_cloudwatch_log_group" "ecs_access_logs" {
   name = "/${var.company_prefix}-sandbox/ecs/access_logs/"
 }
+
+# resource "aws_cloudwatch_ap"

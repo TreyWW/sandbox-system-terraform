@@ -107,7 +107,8 @@ module "provision_sandbox_lambda" {
           aws_iam_role.ecs_execution_role.arn,
           aws_iam_role.scheduler_role_invoke_shutdown_lambda.arn
         ]
-      }
+      },
+      jsondecode(file("${path.module}/templates/iam_policies/xray.json"))
     ]
   })
 
@@ -235,7 +236,8 @@ module "shutdown_sandbox_lambda" {
           "scheduler:UpdateSchedule"
         ],
         "Resource" : "arn:aws:scheduler:${var.region}:${local.account_id}:schedule/${aws_scheduler_schedule_group.default.name}/*"
-      }
+      },
+      jsondecode(file("${path.module}/templates/iam_policies/xray.json"))
     ]
   })
 
@@ -322,7 +324,8 @@ module "restart_sandbox_lambda" {
           "scheduler:UpdateSchedule"
         ],
         "Resource" : "arn:aws:scheduler:${var.region}:${local.account_id}:schedule/${aws_scheduler_schedule_group.default.name}/*"
-      }
+      },
+      jsondecode(file("${path.module}/templates/iam_policies/xray.json"))
     ]
   })
 
@@ -427,7 +430,8 @@ module "monitor_sandbox_lambda" {
           "scheduler:UpdateSchedule"
         ],
         "Resource" : "arn:aws:scheduler:${var.region}:${local.account_id}:schedule/${aws_scheduler_schedule_group.default.name}/*"
-      }
+      },
+      jsondecode(file("${path.module}/templates/iam_policies/xray.json"))
     ]
   })
 
@@ -552,7 +556,8 @@ module "proxy_request_lambda" {
         "Effect" : "Allow",
         "Action" : "lambda:InvokeFunction",
         "Resource" : module.restart_sandbox_lambda.lambda_arn
-      }
+      },
+      jsondecode(file("${path.module}/templates/iam_policies/xray.json"))
     ]
   })
 

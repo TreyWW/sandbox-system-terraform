@@ -28,32 +28,17 @@ resource "aws_vpc_security_group_egress_rule" "egress" {
   ip_protocol = var.sg_egress_rules[count.index].protocol
 }
 
-resource "aws_iam_role" "execution_role" {
-  name = "${var.prefix}-${var.lambda_name}-lambda-execution-role"
+module "iam_role" {
+  source = "../iam_role"
 
-  assume_role_policy = jsonencode({
-    "Version" : "2012-10-17",
-    "Statement" : [
-      {
-        "Effect" : "Allow",
-        "Principal" : {
-          "Service" : "lambda.amazonaws.com"
-        },
-        "Action" : "sts:AssumeRole"
-      }
-    ]
-  })
-}
+  prefix = var.prefix
+  name = var.lambda_name
 
-resource "aws_iam_policy" "execution_role_policy" {
-  name = "${var.prefix}-${var.lambda_name}-lambda-execution-role-policy"
-
-  policy = var.lambda_role_execution_policy
-}
-
-resource "aws_iam_role_policy_attachment" "execution_role_policy_attachment" {
-  role       = aws_iam_role.execution_role.id
-  policy_arn = aws_iam_policy.execution_role_policy.arn
+  inline_iam_policies = [{
+    name = "Lambda-Execution-Policy"
+    policy_json = var.lambda_role_execution_policy
+  }]
+  principal_services = ["lambda.amazonaws.com"]
 }
 
 resource "aws_lambda_layer_version" "dependencies" {
@@ -75,7 +60,7 @@ resource "aws_lambda_function" "lambda" {
   function_name = "${var.prefix}-${var.lambda_name}"
 
   handler = "lambda_function.lambda_handler"
-  role    = aws_iam_role.execution_role.arn
+  role    = module.iam_role.arn
   runtime = var.lambda_runtime
   timeout = var.lambda_timeout
 
@@ -96,6 +81,10 @@ resource "aws_lambda_function" "lambda" {
   logging_config {
     log_group  = var.log_group_name
     log_format = "Text"
+  }
+
+  tracing_config {
+    mode = "Active"  # X-Ray
   }
 
   layers = [
